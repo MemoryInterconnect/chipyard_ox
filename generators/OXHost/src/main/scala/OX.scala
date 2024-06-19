@@ -91,6 +91,7 @@ class OXMMIOChiselModule(val w: Int) extends Module
   io.busy := state =/= s_idle
 
   println("SCALA OX CODE IN HERE");
+
 }
 // DOC include end: OX chisel
 
