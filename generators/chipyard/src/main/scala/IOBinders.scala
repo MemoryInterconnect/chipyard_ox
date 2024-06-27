@@ -33,6 +33,11 @@ object IOBinderTypes {
 }
 import IOBinderTypes._
 
+import omnixtendagentetri._
+import mecaomni._
+//import dualtloe._ 
+
+
 // System for instantiating binders based
 // on the scala type of the Target (_not_ its IO). This avoids needing to
 // duplicate harnesses (essentially test harnesses) for each target.
@@ -160,6 +165,24 @@ class WithUARTIOCells extends OverrideIOBinder({
   }
 })
 // DOC include end: WithUARTIOCells
+
+class WithOMNICells extends OverrideIOBinder({
+  (system: HasOMNIImp) => {
+    implicit val p: Parameters = GetSystemParameters(system)
+      val (port, cells2d) = IOCell.generateIOFromSignal(system.omnixtendIO, "omnixtendIO", system.p(IOCellKey), abstractResetAsAsync = true)
+    (Seq(port), cells2d)
+  }
+})
+
+/*
+class WithDualTLoECells extends OverrideIOBinder({
+  (system: HasDualTLoEImp) => {
+    implicit val p: Parameters = GetSystemParameters(system)
+      val (port, cells2d) = IOCell.generateIOFromSignal(system.mecaomniIO, "dualTLoEIO", system.p(IOCellKey), abstractResetAsAsync = true)
+    (Seq(port), cells2d)
+  }
+})
+*/
 
 class WithSPIIOCells extends OverrideIOBinder({
   (system: HasPeripherySPIFlashModuleImp) => {

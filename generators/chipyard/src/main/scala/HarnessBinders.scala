@@ -30,6 +30,10 @@ import icenet.{CanHavePeripheryIceNIC, SimNetwork, NicLoopback, NICKey, NICIOvon
 
 import scala.reflect.{ClassTag}
 
+import omnixtendagentetri._
+import mecaomni._
+//import dualtloe._
+
 case object HarnessBinders extends Field[Map[String, (Any, HasHarnessSignalReferences, Seq[Data]) => Unit]](
   Map[String, (Any, HasHarnessSignalReferences, Seq[Data]) => Unit]().withDefaultValue((t: Any, th: HasHarnessSignalReferences, d: Seq[Data]) => ())
 )
@@ -80,6 +84,63 @@ class WithGPIOTiedOff extends OverrideHarnessBinder({
     ports.foreach { _ <> AnalogConst(0) }
   }
 })
+
+// Copied from hjkwon's chipyard. by swsok
+// DOC include end: WithOMNIAdapter
+
+class WithOMNIAdapter extends OverrideHarnessBinder({
+  (system: HasOMNIImp, th: HasHarnessSignalReferences, ports: Seq[OMNIIOTop]) => {
+    implicit val p: Parameters = GetSystemParameters(system)
+//      val omni_harness = Module(new SimOMNI(8)).suggestName("simomni")
+    ports.foreach({ b =>
+      b.gt_rxp_in := DontCare
+      b.gt_rxn_in := DontCare
+      b.mclk := false.B.asClock
+      b.gt_refclk_p := false.B.asClock
+      b.gt_refclk_n := false.B.asClock
+      b.GPIO_SW_N := DontCare
+      b.GPIO_SW_S := DontCare
+      b.GPIO_SW_E := DontCare
+      b.GPIO_SW_W := DontCare
+      b.GPIO_SW_C := DontCare
+  //    b.GPIO_SW12_1 := true.B // for Simulation
+//      b.GPIO_LED0 := DontCare
+ //     b.GPIO_LED0 := DontCare
+
+ //     omni_harness.io.simOMNIIO.clock := th.harnessBinderClock
+  //    omni_harness.io.simOMNIIO.reset := th.harnessBinderReset.asBool
+//      b.clock := th.harnessBinderClock
+ //     b.reset := th.harnessBinderReset.asBool
+      b
+    })
+  }
+})
+
+/*
+class WithDualTLoEAdapter extends OverrideHarnessBinder({
+  (system: HasDualTLoEImp, th: HasHarnessSignalReferences, ports: Seq[DualTLoEIOTop]) => {
+    implicit val p: Parameters = GetSystemParameters(system)
+    ports.foreach({ b =>
+      b.gt_rxp_in_0 := DontCare
+      b.gt_rxn_in_0 := DontCare
+      b.gt_rxp_in_1 := DontCare
+      b.gt_rxn_in_1 := DontCare
+      
+      b.mclk := false.B.asClock
+      b.gt_refclk_p_0 := true.B.asClock
+      b.gt_refclk_n_0 := false.B.asClock
+      b.gt_refclk_p_1 := true.B.asClock
+      b.gt_refclk_n_1 := false.B.asClock
+      b.GPIO_SW_N := DontCare
+      b.GPIO_SW_S := DontCare
+      b.GPIO_SW_E := DontCare
+      b.GPIO_SW_W := DontCare
+      b.GPIO_SW_C := DontCare
+      b
+    })
+  }
+})
+*/
 
 // DOC include start: WithUARTAdapter
 class WithUARTAdapter extends OverrideHarnessBinder({

@@ -154,6 +154,7 @@ TIMESCALE_OPTS := $(shell verilator --version | perl -lne 'if (/(\d.\d+)/ && $$1
 MAX_WIDTH_OPTS = $(shell verilator --version | perl -lne 'if (/(\d.\d+)/ && $$1 > 4.016) { print "--max-num-width 1048576"; }')
 
 PREPROC_DEFINES := \
+	+define+VERILATOR_SIM=1 \
 	+define+PRINTF_COND=\$$c\(\"verbose\",\"\&\&\"\,\"done_reset\"\) \
 	+define+STOP_COND=\$$c\(\"done_reset\"\)
 
