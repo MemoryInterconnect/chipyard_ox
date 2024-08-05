@@ -10,37 +10,58 @@ import chisel3.util._
  */
 class Endpoint extends Module {
   val io = IO(new Bundle {
-    val txQueueData = Flipped(Decoupled(UInt(131.W))) // 64 (addr) + 64 (data) + 3 (opcode) = 131 bits
-    val rxQueueData = Decoupled(UInt(131.W)) // Output data for response, same width
+    val txQueueData = Flipped(Decoupled(new TloePacket)) // Input data from the transceiver, TloePacket type
+    val rxQueueData = Decoupled(new TloePacket)          // Output data to the transceiver, TloePacket type
   })
 
-  // Default values
+  // Default values for I/O signals
   io.txQueueData.ready := false.B
   io.rxQueueData.valid := false.B
-  io.rxQueueData.bits := 0.U
+  io.rxQueueData.bits  := 0.U.asTypeOf(new TloePacket)
 
   // 1MB memory for read and write operations
-  val mem = SyncReadMem(131072, UInt(64.W)) // 131072 x 64-bit memory (1MB)
+  // 131072 entries of 64-bit data (1MB total)
+  val mem = SyncReadMem(131072, UInt(64.W))
 
-  // Offset value
+  // Address offset value
+  // All addresses will have this offset subtracted to map to memory
   val addressOffset = 0x100000000L.U(64.W)
 
-  // Handle txQueue data and place the result into rxQueue
+  // Handle data from txQueueData
   when(io.txQueueData.valid) {
-    // Extract addr (64 bits), data (64 bits), and opcode (3 bits) from input
-    val addr = io.txQueueData.bits(130, 67) - addressOffset
-    val data = io.txQueueData.bits(66, 3)
-    val opcode = io.txQueueData.bits(2, 0)
+    // Extract address, data, and opcode from the input TloePacket
+    val txPacket = io.txQueueData.bits
+    val addr     = txPacket.tileLinkMsg.addr - addressOffset // 64 bits for address, subtract offset
+    val data     = txPacket.tileLinkMsg.data                 // 64 bits for data
+    val opcode   = txPacket.tileLinkMsg.opcode               // 3 bits for opcode
 
-    // Perform memory operations based on opcode
-    when(opcode === 4.U) { // GET
-      // For Get operation, read from memory and serialize addr, data, opcode
-      io.rxQueueData.bits := Cat(addr + addressOffset, mem.read(addr), opcode)
-    } .elsewhen(opcode === 0.U) { // PutFullData
-      // For PutFullData operation, write to memory and serialize addr, data, opcode
-      mem.write(addr, data)
-      io.rxQueueData.bits := Cat(addr + addressOffset, data, opcode)
+    // Perform operations based on the opcode
+    switch(opcode) {
+      is(4.U) { // GET operation
+        // Read data from memory at the specified address
+        val readData = mem.read(addr)
+        // Combine the address, read data, and opcode into the TileLinkMessage part of rxQueueData
+        io.rxQueueData.bits.tileLinkMsg.addr   := addr + addressOffset
+        io.rxQueueData.bits.tileLinkMsg.data   := readData
+        io.rxQueueData.bits.tileLinkMsg.opcode := opcode
+      }
+      is(0.U) { // PutFullData operation
+        // Write data to memory at the specified address
+        mem.write(addr, data)
+        // Combine the address, written data, and opcode into the TileLinkMessage part of rxQueueData
+        io.rxQueueData.bits.tileLinkMsg.addr   := addr + addressOffset
+        io.rxQueueData.bits.tileLinkMsg.data   := data
+        io.rxQueueData.bits.tileLinkMsg.opcode := opcode
+      }
     }
+
+    // Pass through Ethernet and OmniXtend headers from the input TloePacket to the output TloePacket
+    io.rxQueueData.bits.ethHeader  := txPacket.ethHeader
+    io.rxQueueData.bits.omniHeader := txPacket.omniHeader
+    io.rxQueueData.bits.padding    := txPacket.padding
+    io.rxQueueData.bits.tloeMask   := txPacket.tloeMask
+
+    // Indicate that the output data is valid and the Endpoint is ready to receive new data
     io.rxQueueData.valid := true.B
     io.txQueueData.ready := true.B
   }
