@@ -2,6 +2,7 @@ package omnixtend
 
 import chisel3._
 import chisel3.util._
+
 import chisel3.experimental.{IntParam, BaseModule}
 import freechips.rocketchip.amba.axi4._
 import freechips.rocketchip.subsystem.BaseSubsystem
@@ -11,114 +12,130 @@ import freechips.rocketchip.regmapper.{HasRegMap, RegField}
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util.UIntIsOneOf
 
-// DOC include start: OX params
 case class OXParams(
   address: BigInt = 0x1000,
   width: Int = 32,
   useAXI4: Boolean = false,
   useBlackBox: Boolean = true
 )
-// DOC include end: OX params
 
-// DOC include start: OX key
 case object OXKey extends Field[Option[OXParams]](None)
-// DOC include end: OX key
 
-// OmniXtend 번들 정의
+// Definition of OmniXtend Bundle
 class OmniXtendBundle extends Bundle {
-  val addr = Input(UInt(64.W))
-  val dataIn = Input(UInt(64.W))
-  val dataOut = Output(UInt(64.W))
-  val rw = Input(Bool()) // true for write, false for read
-  val valid = Input(Bool()) // signals if the transaction is valid
-  val ready = Output(Bool()) // signals if the transaction can proceed
+  val addr           = Input(UInt(64.W))
+  val dataIn         = Input(UInt(64.W))
+  val dataOut        = Output(UInt(64.W))
+  val rw             = Input(Bool()) // true for write, false for read
+  val valid          = Input(Bool()) // signals if the transaction is valid
+  val ready          = Output(Bool()) // signals if the transaction can proceed
   val analysisResult = Input(UInt(64.W)) // 분석 결과를 받기 위한 입력 신호
+  val in             = Input(UInt(8.W))
 }
 
-// OmniXtendNode 클래스 정의
+/**
+ * OmniXtendNode is a LazyModule that defines a TileLink manager node
+ * which supports OmniXtend protocol operations. It handles Get and PutFullData
+ * requests by interfacing with a Transceiver module.
+ */
 class OmniXtendNode(implicit p: Parameters) extends LazyModule {
-  val beatBytes = 64
+  val beatBytes = 64 // The size of each data beat in bytes
   val node = TLManagerNode(Seq(TLSlavePortParameters.v1(Seq(TLSlaveParameters.v1(
-    address = Seq(AddressSet(0x100000000L, 0x01FFFFFFFL)),
-    resources = new SimpleDevice("omnixtend", Seq("example,omnixtend")).reg,
-    regionType = RegionType.UNCACHED,
-    executable = true,
-    supportsGet = TransferSizes(1, beatBytes),
-    supportsPutFull = TransferSizes(1, beatBytes),
-    supportsPutPartial = TransferSizes(1, beatBytes),
-    fifoId = Some(0) // FIFO ordering requirement
+    address            = Seq(AddressSet(0x100000000L, 0x01FFFFFFFL)), // Address range this node responds to
+    resources          = new SimpleDevice("omnixtend", Seq("example,omnixtend")).reg, // Device resources
+    regionType         = RegionType.UNCACHED, // Memory region type
+    executable         = true, // Memory is executable
+    supportsGet        = TransferSizes(1, beatBytes), // Supported transfer sizes for Get operations
+    supportsPutFull    = TransferSizes(1, beatBytes), // Supported transfer sizes for PutFull operations
+    supportsPutPartial = TransferSizes(1, beatBytes), // Supported transfer sizes for PutPartial operations
+    fifoId             = Some(0) // FIFO ID
   )),
-    beatBytes = 64,
-    minLatency = 1
+    beatBytes          = 64, // Beat size for the port
+    minLatency         = 1 // Minimum latency for the port
   )))
 
   lazy val module = new LazyModuleImp(this) {
-    val io = IO(new OmniXtendBundle)
+    val io = IO(new OmniXtendBundle) // Input/Output bundle
 
-    val (in, edge) = node.in(0)
+    val (in, edge) = node.in(0) // Getting the input node and its edge
 
-    // 상태 레지스터 정의
-    val dataReg = RegInit(0.U(64.W))
-    val addrReg = RegInit(0.U(64.W))
-    val validReg = RegInit(false.B)
-    val resultReg = RegInit(0.U(64.W))
-
-    // 요청 레지스터를 사용하여 한 클럭 사이클 지연
+    // Registers for storing the validity of Get and PutFullData operations
     val getValidReg = RegNext(in.a.valid && in.a.bits.opcode === TLMessages.Get, init = false.B)
     val putValidReg = RegNext(in.a.valid && in.a.bits.opcode === TLMessages.PutFullData, init = false.B)
-    val dataRegNext = RegNext(io.dataIn)
-    val putDataReg = RegNext(in.a.bits.data)
-    val sourceReg = RegNext(in.a.bits.source)
-    val sizeReg = RegNext(in.a.bits.size)
-    val paramReg = RegNext(in.a.bits.param)
-    val addressReg = RegNext(in.a.bits.address)
-    val opcodeReg = RegNext(in.a.bits.opcode)
+    val aValidReg   = RegInit(false.B) // Register to store the validity of any operation
+    val opcodeReg   = RegInit(0.U(3.W)) // Register to store the opcode
+    val sourceReg   = RegInit(0.U(4.W)) // Register to store the source ID
+    val sizeReg     = RegInit(0.U(3.W)) // Register to store the size
+    val paramReg    = RegInit(0.U(2.W)) // Register to store the parameter
 
-    val transceiver = Module(new Transceiver)
+    val transceiver = Module(new Transceiver) // Transceiver module instance
 
-    // 모든 transceiver 입출력 포트를 초기화
-    transceiver.io.txAddr := 0.U
-    transceiver.io.txData := 0.U
+    // Default values for the transceiver IO
+    transceiver.io.txAddr   := 0.U
+    transceiver.io.txData   := 0.U
     transceiver.io.txOpcode := 0.U
-    transceiver.io.txValid := false.B
-    transceiver.io.rxReady := false.B
+    transceiver.io.txValid  := false.B
+    transceiver.io.rxReady  := false.B
 
-    // 요청 핸들링
-    when (in.a.fire() && in.a.bits.opcode === TLMessages.Get) {
-      transceiver.io.txAddr := in.a.bits.address
-      transceiver.io.txData := in.a.bits.data
-      transceiver.io.txOpcode := in.a.bits.opcode
-      transceiver.io.txValid := true.B
-    }.elsewhen(in.a.fire() && in.a.bits.opcode === TLMessages.PutFullData) {
-      transceiver.io.txAddr := in.a.bits.address
-      transceiver.io.txData := in.a.bits.data
-      transceiver.io.txOpcode := in.a.bits.opcode
-      transceiver.io.txValid := true.B
+    // When the input channel 'a' is ready and valid
+    when (in.a.fire()) {
+        // Transmit the address, data, and opcode from the input channel
+        transceiver.io.txAddr   := in.a.bits.address
+        transceiver.io.txData   := in.a.bits.data
+        transceiver.io.txOpcode := in.a.bits.opcode
+
+        // Store the opcode, source, size, and parameter for response
+        opcodeReg := Mux(in.a.bits.opcode === TLMessages.Get, TLMessages.AccessAckData, TLMessages.AccessAck)
+        sourceReg := in.a.bits.source
+        sizeReg   := in.a.bits.size
+        paramReg  := in.a.bits.param
+
+        transceiver.io.txValid := true.B // Mark the transmission as valid
     }
 
-    // 분석된 결과를 받기 위해 rxReady 설정
-    transceiver.io.rxReady := true.B
+    transceiver.io.rxReady := true.B // Always ready to receive data
 
-    // TileLink 채널 'd'로 응답 생성 (한 클럭 사이클 뒤에)
-    in.d.valid := getValidReg || putValidReg
-    in.a.ready := !getValidReg && !putValidReg
+    // Mark the input channel 'a' as valid
+    when (in.a.valid) {
+        aValidReg := true.B
+    }
 
-    in.d.bits := edge.AccessAck(in.a.bits)
-    in.d.bits.opcode := Mux(getValidReg, TLMessages.AccessAckData, TLMessages.AccessAck)
-    in.d.bits.param := paramReg
-    in.d.bits.size := sizeReg
-    in.d.bits.source := sourceReg
-    in.d.bits.sink := 0.U // 사용할 필요가 없는 경우 0으로 설정
-    in.d.bits.denied := false.B // 예제에서는 데이터가 항상 유효하다고 가정
-    in.d.bits.data := transceiver.io.analysisResult
-    in.d.bits.corrupt := false.B // 예제에서는 데이터가 항상 유효하다고 가정
+    // Default values for the response channel 'd'
+    in.d.valid        := false.B
+    in.d.bits.opcode  := 0.U
+    in.d.bits.param   := 0.U
+    in.d.bits.size    := 0.U
+    in.d.bits.source  := 0.U
+    in.d.bits.sink    := 0.U
+    in.d.bits.denied  := false.B
+    in.d.bits.data    := 0.U
+    in.d.bits.corrupt := false.B
 
-    // OmniXtend 인터페이스 설정
+    // When received data is not zero, prepare the response
+    //when (transceiver.io.rxData =/= 0.U) {
+    when (transceiver.io.rxValid) { 
+        in.d.valid        := true.B // Mark the response as valid
+        in.d.bits         := edge.AccessAck(in.a.bits) // Generate an AccessAck response
+        in.d.bits.opcode  := opcodeReg // Set the opcode from the register
+        in.d.bits.param   := paramReg // Set the parameter from the register
+        in.d.bits.size    := sizeReg // Set the size from the register
+        in.d.bits.source  := sourceReg // Set the source ID from the register
+        in.d.bits.sink    := 0.U // Set sink to 0
+        in.d.bits.denied  := false.B // Mark as not denied
+        in.d.bits.data    := transceiver.io.rxData // Set the data from the received data
+        in.d.bits.corrupt := false.B // Mark as not corrupt
+    }
+
+    // Ready conditions for the input channel 'a' and response channel 'd'
+    in.a.ready := in.a.valid || aValidReg
+    in.d.ready := in.a.valid || aValidReg
+
+    // IO ready signal is asserted when input is valid and opcode is Get or PutFullData
     io.ready := in.a.valid && (in.a.bits.opcode === TLMessages.Get || in.a.bits.opcode === TLMessages.PutFullData)
   }
 }
 
-// OmniXtend Trait 정의
+// OmniXtend Trait
 trait OmniXtend { this: BaseSubsystem =>
   private val portName = "OmniXtend"
   implicit val p: Parameters
@@ -132,7 +149,7 @@ trait OmniXtend { this: BaseSubsystem =>
   }
 }
 
-// OmniXtendModuleImp Trait 정의
+// OmniXtendModuleImp Trait
 trait OmniXtendModuleImp extends LazyModuleImp {
   val outer: OmniXtend
   implicit val p: Parameters
@@ -142,9 +159,6 @@ trait OmniXtendModuleImp extends LazyModuleImp {
   io <> outer.ox.module.io
 }
 
-// DOC include start: OX config fragment
 class WithOX(useAXI4: Boolean = false, useBlackBox: Boolean = false) extends Config((site, here, up) => {
   case OXKey => Some(OXParams(useAXI4 = useAXI4, useBlackBox = useBlackBox))
 })
-// DOC include end: OX config fragment
-
