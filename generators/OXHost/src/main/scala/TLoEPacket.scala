@@ -67,27 +67,6 @@ class TloePacket extends Bundle {
  */
 object TloePacketGenerator {
 
-  def toBigEndian(value: UInt): UInt = {
-    require(value.getWidth == 64, "Input must be 64 bits wide")
-
-    // 8비트씩 (Byte) 재배치하여 빅엔디안으로 변환
-    Cat(
-      value(7, 0),     // 최하위 8비트
-      value(15, 8),    // 다음 8비트
-      value(23, 16),   // 다음 8비트
-      value(31, 24),   // 다음 8비트
-      value(39, 32),   // 다음 8비트
-      value(47, 40),   // 다음 8비트
-      value(55, 48),   // 다음 8비트
-      value(63, 56)    // 최상위 8비트
-    )
-  }
-
-  /**
-   * Create a new TLoE packet.
-   */
-  object TloePacketGenerator {
-
   /**
    * Converts a 64-bit unsigned integer from little-endian to big-endian format.
    *
