@@ -21,6 +21,9 @@ import chipyard.{HasHarnessSignalReferences, BuildTop, ChipTop, ExtTLMem, CanHav
 import chipyard.iobinders.{HasIOBinders}
 import chipyard.harness.{ApplyHarnessBinders}
 
+import sifive.fpgashells.devices.xilinx.ethernet._
+import freechips.rocketchip.amba.axi4._
+
 class VCU118FPGATestHarness(override implicit val p: Parameters) extends VCU118ShellBasicOverlays {
 
   def dp = designParameters
@@ -45,6 +48,8 @@ class VCU118FPGATestHarness(override implicit val p: Parameters) extends VCU118S
   // place all clocks in the shell
   require(dp(ClockInputOverlayKey).size >= 1)
   val sysClkNode = dp(ClockInputOverlayKey)(0).place(ClockInputDesignInput()).overlayOutput.node
+// Refclk
+  val refClkNode = dp(ClockInputOverlayKey)(0).place(ClockInputDesignInput()).overlayOutput.node
 
   /*** Connect/Generate clocks ***/
 
@@ -52,12 +57,21 @@ class VCU118FPGATestHarness(override implicit val p: Parameters) extends VCU118S
   val harnessSysPLL = dp(PLLFactoryKey)()
   harnessSysPLL := sysClkNode
 
+  val harnessRefPLL = dp(PLLFactoryKey)()
+  harnessRefPLL := refClkNode
+
   // create and connect to the dutClock
   println(s"VCU118 FPGA Base Clock Freq: ${dp(DefaultClockFrequencyKey)} MHz")
   val dutClock = ClockSinkNode(freqMHz = dp(DefaultClockFrequencyKey))
   val dutWrangler = LazyModule(new ResetWrangler)
   val dutGroup = ClockGroup()
   dutClock := dutWrangler.node := dutGroup := harnessSysPLL
+
+  println(s"Refclk Freq: 125 MHz")
+  val dut2Clock = ClockSinkNode(freqMHz = 125)
+  val dut2Wrangler = LazyModule(new ResetWrangler)
+  val dut2Group = ClockGroup()
+  dut2Clock := dut2Wrangler.node := dut2Group := harnessRefPLL
 // DOC include end: ClockOverlay
 
   /*** UART ***/
@@ -89,6 +103,28 @@ class VCU118FPGATestHarness(override implicit val p: Parameters) extends VCU118S
   val ddrClient = TLClientNode(Seq(inParams.master))
   ddrNode := ddrClient
 
+  val ethoverlayOutput = dp(EthernetOverlayKey).head.place(EthernetDesignInput()).overlayOutput
+  val ethNode = ethoverlayOutput.axi
+  val oxNode = ethoverlayOutput.ox
+
+  val inParams2 = topDesign match { case td: ChipTop =>
+    td.lazySystem match { case lsys: CanHaveMasterAXI4MMIOPort =>
+      lsys.mmioAXI4Node.edges.in(0)
+    }
+  }
+  val ethClient = AXI4MasterNode(Seq(inParams2.master))
+  ethNode := ethClient
+
+  val inParams3 = topDesign match { case td: ChipTop =>
+    td.lazySystem match { case lsys: CanHaveMasterTLMMIOPort =>
+      lsys.mmioTLNode.edges.in(0)
+    }
+  }
+  val oxClient = TLClientNode(Seq(inParams3.master))
+  val connectorNode = TLIdentityNode()
+  connectorNode := oxClient
+  oxNode :=* connectorNode
+
   // module implementation
   override lazy val module = new VCU118FPGATestHarnessImp(this)
 }
@@ -105,6 +141,7 @@ class VCU118FPGATestHarnessImp(_outer: VCU118FPGATestHarness) extends LazyRawMod
   resetIBUF.io.I := reset
 
   val sysclk: Clock = _outer.sysClkNode.out.head._1.clock
+  val refclk: Clock = _outer.refClkNode.out.head._1.clock
 
   val powerOnReset: Bool = PowerOnResetFPGAOnly(sysclk)
   _outer.sdc.addAsyncPath(Seq(powerOnReset))

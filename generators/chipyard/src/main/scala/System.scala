@@ -27,6 +27,7 @@ class ChipyardSystem(implicit p: Parameters) extends ChipyardSubsystem
   with CanHaveMasterAXI4MemPort // expose AXI port for outer mem
   with CanHaveMasterAXI4MMIOPort
   with CanHaveSlaveAXI4Port
+  with CanHaveMasterTLMMIOPort
 {
 
   val bootROM  = p(BootROMLocated(location)).map { BootROM.attach(_, this, CBUS) }

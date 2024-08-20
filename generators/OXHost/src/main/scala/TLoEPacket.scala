@@ -7,7 +7,7 @@ import chisel3.util._
  * EthernetHeader class defines the structure of an Ethernet header.
  */
 class EthernetHeader extends Bundle {
-  val preamble  = UInt(64.W)    // 8-byte Preamble/SFD
+// val preamble  = UInt(64.W)    // 8-byte Preamble/SFD
   val destMAC   = UInt(48.W)    // 6-byte Destination MAC Address
   val srcMAC    = UInt(48.W)    // 6-byte Source MAC Address
   val etherType = UInt(16.W)    // 2-byte EtherType field
@@ -15,29 +15,41 @@ class EthernetHeader extends Bundle {
 
 /**
  * OmniXtendHeader class defines the structure of an OmniXtend header.
+ * 64 Bits (8 Bytes)
  */
 class OmniXtendHeader extends Bundle {
   val vc        = UInt(3.W)     // Virtual Channel
+  val res1      = UInt(7.W)     // Reserved
   val seqNum    = UInt(22.W)    // Sequence Number
   val seqNumAck = UInt(22.W)    // Sequence Number Acknowledgment
   val ack       = UInt(1.W)     // Acknowledgment
+  val res2      = UInt(1.W)     // Reserved
   val credit    = UInt(5.W)     // Credit
   val chan      = UInt(3.W)     // Channel
 }
 
 /**
  * TileLinkMessage class defines the structure of a TileLink message.
+ * 64 Bits (8 Bytes)
  */
-class TileLinkMessage extends Bundle {
-  val addr      = UInt(64.W)    // Address
-  val data      = UInt(64.W)    // Data
+class TLMessageHigh extends Bundle {
+  val res1      = UInt(1.W)     // Reserved
+  val chan      = UInt(3.W)     // Channel
   val opcode    = UInt(3.W)     // Opcode
+  val res2      = UInt(1.W)     // Reserved
   val param     = UInt(4.W)     // Parameter
   val size      = UInt(4.W)     // Size
-  val source    = UInt(26.W)    // Source
-  val sink      = UInt(26.W)    // Sink
-  val err       = UInt(2.W)     // Error
   val domain    = UInt(8.W)     // Domain
+  val err       = UInt(2.W)     // Error
+  val res3      = UInt(12.W)    // Reserved
+  val source    = UInt(26.W)    // Source
+}
+
+/**
+ * TileLinkMessage class defines the structure of a TileLink message.
+ */
+class TLMessageLow extends Bundle {
+  val addr      = UInt(64.W)    // Address
 }
 
 /**
@@ -46,9 +58,8 @@ class TileLinkMessage extends Bundle {
 class TloePacket extends Bundle {
   val ethHeader   = new EthernetHeader
   val omniHeader  = new OmniXtendHeader
-  val tileLinkMsg = new TileLinkMessage
-  val padding     = UInt(64.W)   // Padding if necessary
-  val tloeMask    = UInt(64.W)   // TLoE Frame Mask
+  val tlMsgHigh   = new TLMessageHigh
+  val tlMsgLow    = new TLMessageLow
 }
 
 /**
@@ -56,37 +67,92 @@ class TloePacket extends Bundle {
  */
 object TloePacketGenerator {
 
+  def toBigEndian(value: UInt): UInt = {
+    require(value.getWidth == 64, "Input must be 64 bits wide")
+
+    // 8비트씩 (Byte) 재배치하여 빅엔디안으로 변환
+    Cat(
+      value(7, 0),     // 최하위 8비트
+      value(15, 8),    // 다음 8비트
+      value(23, 16),   // 다음 8비트
+      value(31, 24),   // 다음 8비트
+      value(39, 32),   // 다음 8비트
+      value(47, 40),   // 다음 8비트
+      value(55, 48),   // 다음 8비트
+      value(63, 56)    // 최상위 8비트
+    )
+  }
+
   /**
    * Create a new TLoE packet.
    */
-  def createTloePacket(txAddr: UInt, txData: UInt, txOpcode: UInt): TloePacket = {
+  object TloePacketGenerator {
+
+  /**
+   * Converts a 64-bit unsigned integer from little-endian to big-endian format.
+   *
+   * In big-endian format, the most significant byte is stored at the smallest address.
+   * This function rearranges the bytes of the input value to convert it from 
+   * little-endian to big-endian.
+   */
+  def toBigEndian(value: UInt): UInt = {
+    require(value.getWidth == 64, "Input must be 64 bits wide")  // Ensure the input is 64 bits wide
+
+    // Rearrange the bytes of the input value to convert it to big-endian format
+    Cat(
+      value(7, 0),     // Least significant byte (original bits 7:0)
+      value(15, 8),    // Next byte (original bits 15:8)
+      value(23, 16),   // Next byte (original bits 23:16)
+      value(31, 24),   // Next byte (original bits 31:24)
+      value(39, 32),   // Next byte (original bits 39:32)
+      value(47, 40),   // Next byte (original bits 47:40)
+      value(55, 48),   // Next byte (original bits 55:48)
+      value(63, 56)    // Most significant byte (original bits 63:56)
+    )
+  }
+
+  /**
+   * Creates a new TLoE (TileLink over Ethernet) packet.
+   *
+   * This function constructs a TLoE packet by populating the various fields of the packet
+   * with appropriate values. The packet is divided into different headers and message
+   * components, such as the Ethernet header, OmniXtend header, and TileLink message fields.
+   */
+  def createTloePacket(txAddr: UInt, txData: UInt, txOpcode: UInt): UInt = {
+    // Create a new instance of the TloePacket (a user-defined bundle)
     val tloePacket = Wire(new TloePacket)
-    tloePacket.ethHeader.preamble  := "hD5D5D5D5D5D5D5D5".U   // 8-byte Preamble/SFD in hexadecimal
-    tloePacket.ethHeader.destMAC   := "hFFFFFFFFFFFF".U       // 6-byte Destination MAC Address in hexadecimal
-    tloePacket.ethHeader.srcMAC    := "hAAAAAAAAAAAA".U       // 6-byte Source MAC Address in hexadecimal
-    tloePacket.ethHeader.etherType := "hAAAA".U               // Example EtherType for TLoE in hexadecimal
 
-    tloePacket.omniHeader.vc        := 0.U
-    tloePacket.omniHeader.seqNum    := 0.U
-    tloePacket.omniHeader.seqNumAck := 0.U
-    tloePacket.omniHeader.ack       := 1.U
-    tloePacket.omniHeader.credit    := 0.U
-    tloePacket.omniHeader.chan      := 0.U
+    // Populate the Ethernet header fields
+    tloePacket.ethHeader.destMAC    := "h043f72dd0acc".U  // 6-byte Destination MAC Address
+    tloePacket.ethHeader.srcMAC     := "h123456789ABC".U  // 6-byte Source MAC Address
+    tloePacket.ethHeader.etherType  := "hAAAA".U          // 2-byte EtherType (Example value for TLoE)
 
-    tloePacket.tileLinkMsg.addr     := txAddr
-    tloePacket.tileLinkMsg.data     := txData
-    tloePacket.tileLinkMsg.opcode   := txOpcode
-    tloePacket.tileLinkMsg.param    := 0.U
-    tloePacket.tileLinkMsg.size     := 0.U
-    tloePacket.tileLinkMsg.source   := 0.U
-    tloePacket.tileLinkMsg.sink     := 0.U
-    tloePacket.tileLinkMsg.err      := 0.U
-    tloePacket.tileLinkMsg.domain   := 0.U
+    // Populate the OmniXtend header fields
+    tloePacket.omniHeader.vc        := 0.U  // Virtual Channel ID
+    tloePacket.omniHeader.res1      := 0.U  // Reserved field 1
+    tloePacket.omniHeader.seqNum    := 0.U  // Sequence Number
+    tloePacket.omniHeader.seqNumAck := 0.U  // Acknowledged Sequence Number
+    tloePacket.omniHeader.ack       := 1.U  // Acknowledgment flag
+    tloePacket.omniHeader.res2      := 0.U  // Reserved field 2
+    tloePacket.omniHeader.credit    := 0.U  // Credit field
+    tloePacket.omniHeader.chan      := 0.U  // Channel ID
 
-    tloePacket.padding              := 0.U
-    tloePacket.tloeMask             := 0.U
+    // Populate the high part of the TileLink message fields
+    tloePacket.tlMsgHigh.res1       := 0.U      // Reserved field 1
+    tloePacket.tlMsgHigh.chan       := 0.U      // Channel ID
+    tloePacket.tlMsgHigh.opcode     := txOpcode // TileLink operation code (input parameter)
+    tloePacket.tlMsgHigh.res2       := 0.U      // Reserved field 2
+    tloePacket.tlMsgHigh.param      := 0.U      // TileLink parameter field
+    tloePacket.tlMsgHigh.size       := 0.U      // Size of the transaction
+    tloePacket.tlMsgHigh.domain     := 0.U      // Domain field
+    tloePacket.tlMsgHigh.err        := 0.U      // Error field
+    tloePacket.tlMsgHigh.res3       := 0.U      // Reserved field 3
+    tloePacket.tlMsgHigh.source     := 0.U      // Source field
 
-    tloePacket
+    // Populate the low part of the TileLink message fields
+    tloePacket.tlMsgLow.addr    := txAddr   // TileLink address (input parameter)
+
+    // Convert the TLoE packet bundle to a single UInt representing the entire packet
+    tloePacket.asUInt
   }
 }
-

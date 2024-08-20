@@ -12,6 +12,12 @@ import sifive.blocks.devices.spi.{HasPeripherySPI, SPIPortIO}
 import chipyard.{HasHarnessSignalReferences, CanHaveMasterTLMemPort}
 import chipyard.harness.{OverrideHarnessBinder}
 
+import sifive.fpgashells.devices.xilinx.ethernet._
+import sifive.fpgashells.shell._
+import freechips.rocketchip.subsystem._
+import testchipip._
+import freechips.rocketchip.amba.axi4._
+
 /*** UART ***/
 class WithUART extends OverrideHarnessBinder({
   (system: HasPeripheryUARTModuleImp, th: BaseModule with HasHarnessSignalReferences, ports: Seq[UARTPortIO]) => {
@@ -40,6 +46,32 @@ class WithDDRMem extends OverrideHarnessBinder({
       val ddrClientBundle = Wire(new HeterogeneousBag(bundles.map(_.cloneType)))
       bundles.zip(ddrClientBundle).foreach { case (bundle, io) => bundle <> io }
       ddrClientBundle <> ports.head
+    } }
+  }
+})
+
+/*** Ethernet AXI-Lite***/
+class WithEthernetAXI4Lite extends OverrideHarnessBinder({
+  (system: CanHaveMasterAXI4MMIOPort, th: BaseModule with HasHarnessSignalReferences, ports: Seq[HeterogeneousBag[AXI4Bundle]]) => {
+    println(s"EthernetPorts: ${ports.mkString(", ")}")
+    th match { case vcu118th: VCU118FPGATestHarnessImp => {
+      val bundles = vcu118th.vcu118Outer.ethClient.out.map(_._1)
+      val ethClientBundle = Wire(new HeterogeneousBag(bundles.map(_.cloneType)))
+      bundles.zip(ethClientBundle).foreach { case (bundle, io) => bundle <> io }
+      ethClientBundle <> ports.head
+    } }
+  }
+})
+
+/*** OX Tilelink ***/
+class WithOXTilelink extends OverrideHarnessBinder({
+  (system: CanHaveMasterTLMMIOPort, th: BaseModule with HasHarnessSignalReferences, ports: Seq[HeterogeneousBag[TLBundle]]) => {
+    println(s"OXPorts: ${ports.mkString(", ")}")
+    th match { case vcu118th: VCU118FPGATestHarnessImp => {
+      val bundles = vcu118th.vcu118Outer.oxClient.out.map(_._1)
+      val oxClientBundle = Wire(new HeterogeneousBag(bundles.map(_.cloneType)))
+      bundles.zip(oxClientBundle).foreach { case (bundle, io) => bundle <> io }
+      oxClientBundle <> ports.head
     } }
   }
 })

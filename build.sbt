@@ -149,7 +149,7 @@ lazy val chipyard = (project in file("generators/chipyard"))
     sha3, // On separate line to allow for cleaner tutorial-setup patches
     dsptools, `rocket-dsp-utils`,
     gemmini, icenet, tracegen, cva6, nvdla, sodor, ibex, fft_generator,
-    constellation, mempress, OXHost)
+    constellation, mempress, OXHost, fpga_shells)
   .settings(libraryDependencies ++= rocketLibDeps.value)
   .settings(commonSettings)
 
@@ -286,7 +286,7 @@ lazy val firechip = (project in file("generators/firechip"))
     Test / testOptions += Tests.Argument("-oF")
   )
 lazy val fpga_shells = (project in file("./fpga/fpga-shells"))
-  .dependsOn(rocketchip, sifive_blocks)
+  .dependsOn(rocketchip, sifive_blocks, OXHost)
   .settings(libraryDependencies ++= rocketLibDeps.value)
   .settings(commonSettings)
 
@@ -295,6 +295,6 @@ lazy val fpga_platforms = (project in file("./fpga"))
   .settings(commonSettings)
 
 lazy val OXHost = (project in file("generators/OXHost"))
-  .dependsOn(rocketchip)
+  .dependsOn(rocketchip, sifive_blocks)
   .settings(libraryDependencies ++= rocketLibDeps.value)
   .settings(commonSettings)

@@ -4,7 +4,8 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define MEM_BASE 0x100000000          // Base address of the memory region
+//#define MEM_BASE 0x100000000          // Base address of the memory region
+#define MEM_BASE 0x70000000          // Base address of the memory region
 #define REGION_SIZE (1 * 1024 * 1024) // Size of the memory region (1MB)
 #define TEST_COUNT 10                 // Number of test iterations
 #define ALIGNMENT (64 * 1024)         // 64KB alignment

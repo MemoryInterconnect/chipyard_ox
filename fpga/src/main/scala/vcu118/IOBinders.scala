@@ -13,6 +13,16 @@ import sifive.blocks.devices.spi.{HasPeripherySPI, HasPeripherySPIModuleImp, MMC
 
 import chipyard.{CanHaveMasterTLMemPort}
 import chipyard.iobinders.{OverrideIOBinder, OverrideLazyIOBinder}
+import sifive.fpgashells.devices.xilinx.ethernet._
+import freechips.rocketchip.subsystem._
+import chipyard.iobinders._
+import testchipip._
+import chipsalliance.rocketchip._
+import freechips.rocketchip.amba.axi4._
+import freechips.rocketchip.config.{Parameters}
+import sifive.fpgashells.clocks._
+import barstools.iocell.chisel._
+import freechips.rocketchip.diplomacy.{ModuleValue}
 
 class WithUARTIOPassthrough extends OverrideIOBinder({
   (system: HasPeripheryUARTModuleImp) => {
@@ -47,6 +57,22 @@ class WithTLIOPassthrough extends OverrideIOBinder({
   (system: CanHaveMasterTLMemPort) => {
     val io_tl_mem_pins_temp = IO(DataMirror.internal.chiselTypeClone[HeterogeneousBag[TLBundle]](system.mem_tl)).suggestName("tl_slave")
     io_tl_mem_pins_temp <> system.mem_tl
+    (Seq(io_tl_mem_pins_temp), Nil)
+  }
+})
+
+class WithAXIIOPassthrough extends OverrideIOBinder({
+  (system: CanHaveMasterAXI4MMIOPort) => {
+    val io_tl_mem_pins_temp = IO(DataMirror.internal.chiselTypeClone[HeterogeneousBag[AXI4Bundle]](system.mmio_axi4)).suggestName("axi_slave")
+    io_tl_mem_pins_temp <> system.mmio_axi4
+    (Seq(io_tl_mem_pins_temp), Nil)
+  }
+})
+
+class WithOXIOPassthrough extends OverrideIOBinder({
+  (system: CanHaveMasterTLMMIOPort) => {
+    val io_tl_mem_pins_temp = IO(DataMirror.internal.chiselTypeClone[HeterogeneousBag[TLBundle]](system.mmio_tl)).suggestName("ox_slave")
+    io_tl_mem_pins_temp <> system.mmio_tl
     (Seq(io_tl_mem_pins_temp), Nil)
   }
 })

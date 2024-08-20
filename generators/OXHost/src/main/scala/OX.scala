@@ -31,6 +31,14 @@ class OmniXtendBundle extends Bundle {
   val ready          = Output(Bool()) // signals if the transaction can proceed
   val analysisResult = Input(UInt(64.W)) // 분석 결과를 받기 위한 입력 신호
   val in             = Input(UInt(8.W))
+  // Connected to Ethernet IP
+  val txdata = Output(UInt(64.W))
+  val txvalid = Output(Bool())
+  val txlast = Output(Bool())
+  val txready = Input(Bool())
+  val rxdata = Input(UInt(64.W))
+  val rxvalid = Input(Bool())
+  val rxlast = Input(Bool())
 }
 
 /**
@@ -41,7 +49,7 @@ class OmniXtendBundle extends Bundle {
 class OmniXtendNode(implicit p: Parameters) extends LazyModule {
   val beatBytes = 64 // The size of each data beat in bytes
   val node = TLManagerNode(Seq(TLSlavePortParameters.v1(Seq(TLSlaveParameters.v1(
-    address            = Seq(AddressSet(0x100000000L, 0x01FFFFFFFL)), // Address range this node responds to
+    address            = Seq(AddressSet(0x70000000L, 0x01FFFFFFL)), // Address range this node responds to
     resources          = new SimpleDevice("omnixtend", Seq("example,omnixtend")).reg, // Device resources
     regionType         = RegionType.UNCACHED, // Memory region type
     executable         = true, // Memory is executable
@@ -69,6 +77,16 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
     val paramReg    = RegInit(0.U(2.W)) // Register to store the parameter
 
     val transceiver = Module(new Transceiver) // Transceiver module instance
+
+    // OX <-> Transceiver IO
+    io.txdata := transceiver.io.txdata
+    io.txvalid := transceiver.io.txvalid
+    io.txlast := transceiver.io.txlast
+
+    transceiver.io.txready := io.txready
+    transceiver.io.rxdata := io.rxdata
+    transceiver.io.rxvalid := io.rxvalid
+    transceiver.io.rxlast := io.rxlast
 
     // Default values for the transceiver IO
     transceiver.io.txAddr   := 0.U
@@ -112,8 +130,7 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
     in.d.bits.corrupt := false.B
 
     // When received data is not zero, prepare the response
-    //when (transceiver.io.rxData =/= 0.U) {
-    when (transceiver.io.rxValid) { 
+    when (transceiver.io.axi_rxvalid) { // RX valid signal received from Ethernet IP
         in.d.valid        := true.B // Mark the response as valid
         in.d.bits         := edge.AccessAck(in.a.bits) // Generate an AccessAck response
         in.d.bits.opcode  := opcodeReg // Set the opcode from the register
@@ -122,7 +139,11 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
         in.d.bits.source  := sourceReg // Set the source ID from the register
         in.d.bits.sink    := 0.U // Set sink to 0
         in.d.bits.denied  := false.B // Mark as not denied
-        in.d.bits.data    := transceiver.io.rxData // Set the data from the received data
+        when(transceiver.io.toggle_last === true.B) { // Signal toggle_last toggled by the RX last signal
+          in.d.bits.data := transceiver.io.axi_rxdata
+        } .otherwise {
+          in.d.bits.data    := 0.U // Set the data from the received data
+        }
         in.d.bits.corrupt := false.B // Mark as not corrupt
     }
 
@@ -162,3 +183,4 @@ trait OmniXtendModuleImp extends LazyModuleImp {
 class WithOX(useAXI4: Boolean = false, useBlackBox: Boolean = false) extends Config((site, here, up) => {
   case OXKey => Some(OXParams(useAXI4 = useAXI4, useBlackBox = useBlackBox))
 })
+
