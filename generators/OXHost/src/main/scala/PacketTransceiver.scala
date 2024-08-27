@@ -94,7 +94,7 @@ class Transceiver extends Module {
   when (io.txValid) {
 
     when (io.txOpcode === 4.U) {		// READ
-      pPacket := OXread.createOXPacket(io.txAddr, seq, seqAck)
+      pPacket := OXread.readPacket(io.txAddr, seq, seqAck)
       //pPacket := OXread.readPacket("h100000000".U(64.W), seq, seqAck)
 
       buf_vec := VecInit(Seq.tabulate(9) (i => {
