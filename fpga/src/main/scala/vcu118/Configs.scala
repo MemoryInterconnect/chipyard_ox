@@ -14,8 +14,6 @@ import sifive.blocks.devices.uart.{PeripheryUARTKey, UARTParams}
 
 import sifive.fpgashells.shell.{DesignKey}
 import sifive.fpgashells.shell.xilinx.{VCU118ShellPMOD, VCU118DDRSize}
-import sifive.fpgashells.devices.xilinx.ethernet.{PeripheryEthernetKey}
-import sifive.fpgashells.ip.xilinx.xxv_ethernet.{XXVEthernetParams}
 
 import testchipip.{SerialTLKey}
 
@@ -24,7 +22,6 @@ import chipyard.{BuildSystem, ExtTLMem, DefaultClockFrequencyKey}
 class WithDefaultPeripherals extends Config((site, here, up) => {
   case PeripheryUARTKey => List(UARTParams(address = BigInt(0x64000000L)))
   case PeripherySPIKey => List(SPIParams(rAddress = BigInt(0x64001000L)))
-  case PeripheryEthernetKey => List(XXVEthernetParams(name = "ethernet", speed   = 10, dclkMHz = 125))
   case VCU118ShellPMOD => "SDIO"
 })
 

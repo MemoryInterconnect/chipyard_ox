@@ -35,6 +35,7 @@ class OmniXtendBundle extends Bundle {
   val txdata = Output(UInt(64.W))
   val txvalid = Output(Bool())
   val txlast = Output(Bool())
+  val txkeep = Output(UInt(8.W))
   val txready = Input(Bool())
   val rxdata = Input(UInt(64.W))
   val rxvalid = Input(Bool())
@@ -49,7 +50,7 @@ class OmniXtendBundle extends Bundle {
 class OmniXtendNode(implicit p: Parameters) extends LazyModule {
   val beatBytes = 64 // The size of each data beat in bytes
   val node = TLManagerNode(Seq(TLSlavePortParameters.v1(Seq(TLSlaveParameters.v1(
-    address            = Seq(AddressSet(0x70000000L, 0x01FFFFFFL)), // Address range this node responds to
+    address            = Seq(AddressSet(0x500000000L, 0x01FFFFFFL)), // Address range this node responds to
     resources          = new SimpleDevice("omnixtend", Seq("example,omnixtend")).reg, // Device resources
     regionType         = RegionType.UNCACHED, // Memory region type
     executable         = true, // Memory is executable
@@ -82,6 +83,7 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
     io.txdata := transceiver.io.txdata
     io.txvalid := transceiver.io.txvalid
     io.txlast := transceiver.io.txlast
+    io.txkeep := transceiver.io.txkeep
 
     transceiver.io.txready := io.txready
     transceiver.io.rxdata := io.rxdata

@@ -30,6 +30,7 @@ class Transceiver extends Module {
     val txdata      = Output(UInt(64.W))
     val txvalid     = Output(Bool())
     val txlast      = Output(Bool())
+    val txkeep      = Output(UInt(8.W))
     val txready     = Input(Bool())
     val rxdata      = Input(UInt(64.W))
     val rxvalid     = Input(Bool())
@@ -77,6 +78,7 @@ class Transceiver extends Module {
   val axi_txdata  = RegInit(0.U(64.W))
   val axi_txvalid = RegInit(false.B)
   val axi_txlast  = RegInit(false.B)
+  val axi_txkeep  = RegInit(0.U(8.W))
   val txcount     = RegInit(0.U(log2Ceil(replicationCycles).W))
 
   //val buf_vec     = RegInit(VecInit(Seq.fill(10)(0.U(64.W))))
@@ -134,12 +136,16 @@ class Transceiver extends Module {
 
     when (txcount === (replicationCycles-1).U) {
       axi_txlast := true.B
+      axi_txkeep := 0x3F.U
+    } .otherwise {
+      axi_txkeep := 0xFF.U
     }
   } .elsewhen (txcount === replicationCycles.U) {
     // Reset signals after transmission
     axi_txdata := 0.U
     axi_txvalid := false.B
     axi_txlast := false.B
+    axi_txkeep := 0.U
     txcount := 0.U
   }
 
@@ -147,6 +153,7 @@ class Transceiver extends Module {
   io.txvalid := axi_txvalid
   io.txdata := axi_txdata
   io.txlast := axi_txlast
+  io.txkeep := axi_txkeep
 
   /////////////////////////////////////////////////
 
