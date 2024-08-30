@@ -141,12 +141,13 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
         in.d.bits.source  := sourceReg // Set the source ID from the register
         in.d.bits.sink    := 0.U // Set sink to 0
         in.d.bits.denied  := false.B // Mark as not denied
-        when(transceiver.io.toggle_last === true.B) { // Signal toggle_last toggled by the RX last signal
-          in.d.bits.data := transceiver.io.axi_rxdata
-        } .otherwise {
-          in.d.bits.data    := 0.U // Set the data from the received data
-        }
+ 
+      when (opcodeReg === TLMessages.AccessAckData) {
+        in.d.bits.data := transceiver.io.axi_rxdata
         in.d.bits.corrupt := false.B // Mark as not corrupt
+      }.elsewhen (opcodeReg === TLMessages.AccessAck) {
+        in.d.bits.data    := 0.U
+      }
     }
 
     // Ready conditions for the input channel 'a' and response channel 'd'

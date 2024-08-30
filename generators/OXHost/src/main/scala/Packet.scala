@@ -43,11 +43,10 @@ object OXread {
 
     // Define Padding and Mask
     val padding = 0.U(192.W)                    // 192-bit padding
-    //val mask = "h0000000000000001".U(64.W)      // 64-bit mask, all bits set to 1
     val mask = "h0000000000000001".U(64.W)      // 64-bit mask, all bits set to 1
 
     // Convert the TLoE packet bundle to a single UInt representing the entire packet
-    val packetWithPadding = Cat(tloePacket.asUInt, padding, mask, "h0000".U(16.W))
+    val packetWithPadding = Cat(tloePacket.asUInt, padding, mask, 0.U(16.W))
     
     packetWithPadding
   }
@@ -85,14 +84,13 @@ object OXread {
 
     // Populate the low part of the TileLink message fields
     tloePacket.tlMsgLow.addr        := txAddr  // TileLink address (input parameter)
-    //tloePacket.tlMsgLow.addr        := "h0000000100000000".U(64.W)
 
     // Define Padding and Mask
     val padding = 0.U(128.W)                    // 192-bit padding
     val mask = "h0000000000000001".U(64.W)      // 64-bit mask, all bits set to 1
 
     // Convert the TLoE packet bundle to a single UInt representing the entire packet
-    val packetWithPadding = Cat(tloePacket.asUInt, txData, padding, mask, "h1111".U(16.W))
+    val packetWithPadding = Cat(tloePacket.asUInt, txData, padding, mask, 0.U(16.W))
     
     packetWithPadding
   }

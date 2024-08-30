@@ -24,7 +24,6 @@ class Transceiver extends Module {
     val rxReady     = Input(Bool())       // Ready signal for receiver
 
     // Ethernet IP core interface
-    val toggle_last = Output(Bool())
     val axi_rxdata  = Output(UInt(64.W))
     val axi_rxvalid = Output(Bool())
     val txdata      = Output(UInt(64.W))
@@ -38,8 +37,8 @@ class Transceiver extends Module {
   })
 
   val seq     = RegInit(2.U(16.W))   // Sequence number (0~65535)
-  val seqAck = RegInit(3.U(16.W))   // Sequence number Ack (0~65535)
-  val addr = RegInit(0.U(64.W))
+  val seqAck  = RegInit(3.U(16.W))   // Sequence number Ack (0~65535)
+  val addr    = RegInit(0.U(64.W))
 
   /////////////////////////////////////////////////
   // Connect to Ethnenet IP
@@ -48,19 +47,25 @@ class Transceiver extends Module {
   val replicationCycles = 10
    
   // Registers to hold the AXI-Stream signals
-  val toggle_last = RegInit(false.B)
-  val axi_rxdata = RegInit(0.U(64.W))
+  val axi_rxdata  = RegInit(0.U(64.W))
   val axi_rxvalid = RegInit(false.B)
-  val rxcount = RegInit(0.U(log2Ceil(replicationCycles).W))
+
+  val rxcount     = RegInit(0.U(log2Ceil(replicationCycles).W))
+  val rPacket     = RegInit(0.U(576.W))
+  val rPacketVec  = RegInit(VecInit(Seq.fill(9)(0.U(64.W))))
 
   // Handling the valid and last signals in AXI-Stream
-  when (io.rxlast) {
-    toggle_last := true.B
-  }
   when (io.rxvalid) {
     rxcount := rxcount + 1.U
-    when (rxcount === 0.U){
-      axi_rxdata := io.rxdata
+
+    rPacket := Cat (io.rxdata, rPacket(575, 64))
+    rPacketVec(rxcount) := io.rxdata
+
+    when (rxcount === 7.U){ // TODO: check 8, 9
+      axi_rxdata := Cat(
+        (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
+        (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 16)
+      ) 
       axi_rxvalid := true.B
     } .otherwise{
       axi_rxvalid := false.B
@@ -70,8 +75,7 @@ class Transceiver extends Module {
   }
 
   // Connecting internal signals to output interface
-  io.toggle_last := toggle_last
-  io.axi_rxdata := axi_rxdata
+  io.axi_rxdata  := axi_rxdata
   io.axi_rxvalid := axi_rxvalid
 
   // TX AXI-Stream to Tilelink (Transmission Path)
@@ -79,58 +83,51 @@ class Transceiver extends Module {
   val axi_txvalid = RegInit(false.B)
   val axi_txlast  = RegInit(false.B)
   val axi_txkeep  = RegInit(0.U(8.W))
+
   val txcount     = RegInit(0.U(log2Ceil(replicationCycles).W))
+  val tPacket     = Wire(UInt(576.W)) 
+  val tPacketVec  = RegInit(VecInit(Seq.fill(9)(0.U(64.W))))
 
-  //val buf_vec     = RegInit(VecInit(Seq.fill(10)(0.U(64.W))))
-  val buf_vec     = RegInit(VecInit(Seq.fill(9)(0.U(64.W))))
-
-  val txaddrReg = RegInit(io.txAddr)
-  val pPacket = Wire(UInt(576.W)) 
-  //val pPacket = RegInit(0.U(576.W)) 
-  val bPacket = RegInit(false.B)
-  val addrReg = RegNext(io.txAddr)
-
-  pPacket := 0.U
+  tPacket := 0.U
 
   // TX AXI-Stream data/valid/last
   when (io.txValid) {
 
     when (io.txOpcode === 4.U) {		// READ
-      pPacket := OXread.readPacket(io.txAddr, seq, seqAck)
-      //pPacket := OXread.readPacket("h100000000".U(64.W), seq, seqAck)
+      tPacket := OXread.readPacket(io.txAddr, seq, seqAck)
 
-      buf_vec := VecInit(Seq.tabulate(9) (i => {
+      tPacketVec := VecInit(Seq.tabulate(9) (i => {
         val packetWidth = OXread.readPacket(io.txAddr, seq, seqAck).getWidth
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
-        pPacket (high, low)
+        tPacket (high, low)
       }))
       seq := seq + 1.U
 
       axi_txlast := false.B
       txcount := 1.U
     }.elsewhen (io.txOpcode === 0.U) {	// WRITE
-      pPacket := OXread.writePacket(io.txAddr, io.txData, seq, seqAck)
-      //pPacket := OXread.writePacket("h100000000".U(64.W), io.txData, seq, seqAck)
+      tPacket := OXread.writePacket(io.txAddr, io.txData, seq, seqAck)
 
-      buf_vec := VecInit(Seq.tabulate(9) (i => {
+      tPacketVec := VecInit(Seq.tabulate(9) (i => {
         val packetWidth = OXread.readPacket(io.txAddr, seq, seqAck).getWidth
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
-        pPacket (high, low)
+        tPacket (high, low)
       }))
       seq := seq + 1.U
 
       axi_txlast := false.B
       txcount := 1.U
     }.otherwise {
+      //TODO
     }
   }
 
   when(txcount > 0.U && txcount < replicationCycles.U) {
-    axi_txdata := TloePacketGenerator.toBigEndian(buf_vec(txcount - 1.U))
+    axi_txdata := TloePacketGenerator.toBigEndian(tPacketVec(txcount - 1.U))
     txcount := txcount + 1.U
     axi_txvalid := true.B
 
@@ -169,7 +166,7 @@ class Transceiver extends Module {
   // 16 entries of TloePacket type
   val rxQueue = Module(new Queue(UInt(640.W), 16))
 
-  val bufVec     = RegInit(VecInit(Seq.fill(9)(0.U(64.W))))
+  val tx_packet_vec = RegInit(VecInit(Seq.fill(9)(0.U(64.W))))
   val txCount     = RegInit(0.U(log2Ceil(replicationCycles).W))
 
   val tmpP = RegInit(0.U(576.W))
@@ -194,7 +191,7 @@ class Transceiver extends Module {
     // Create a TLoE packet using input address, data, and opcode
     tloePacket := OXread.readPacket(txAddrReg, seq, seqAck)
 
-    bufVec := VecInit(Seq.tabulate(9) (i => {
+    tx_packet_vec := VecInit(Seq.tabulate(9) (i => {
       //val packetWidth = OXread.createOXPacket(io.txAddr, seq, seqAck).getWidth
       val packetWidth = 576
       val high = packetWidth - (64 * i) - 1
@@ -206,31 +203,22 @@ class Transceiver extends Module {
     //tmpP := tloePacket
     txQueue.io.enq.bits := txAddrReg
     txCount := 1.U
-}
-/*
-    val tloePacket = Cat(
-      TloePacketGenerator.createTloePacket(io.txAddr, io.txData, io.txOpcode),
-      0.U((640 - TloePacketGenerator.createTloePacket(io.txAddr, io.txData, io.txOpcode).getWidth).W)
-    )
+  }
 
-*/
-    // Enqueue the TLoE packet into txQueue when txValid is high
-
-    when(txCount > 0.U && txCount < replicationCycles.U) {
-      txQueue.io.enq.bits := buf_vec(txCount - 1.U)
-      txCount := txCount + 1.U
-    } .elsewhen (txCount === replicationCycles.U) {
-      txQueue.io.enq.valid := 1.U
-      txCount := txCount + 1.U
-    } .elsewhen (txCount === (replicationCycles + 1).U) {
-      // Reset signals after transmission
-      txCount := 0.U
-    }
+  // Enqueue the TLoE packet into txQueue when txValid is high
+  when(txCount > 0.U && txCount < replicationCycles.U) {
+    txQueue.io.enq.bits := tPacketVec(txCount - 1.U)
+    txCount := txCount + 1.U
+  } .elsewhen (txCount === replicationCycles.U) {
+    txQueue.io.enq.valid := 1.U
+    txCount := txCount + 1.U
+  } .elsewhen (txCount === (replicationCycles + 1).U) {
+    // Reset signals after transmission
+    txCount := 0.U
+  }
  
-//    txQueue.io.enq.bits  := tloePacket
-    txQueue.io.enq.valid := io.txValid
-    io.txReady           := txQueue.io.enq.ready
-//  }
+  txQueue.io.enq.valid := io.txValid
+  io.txReady           := txQueue.io.enq.ready
 
   // Instantiate the Endpoint module
   val endpoint = Module(new Endpoint)
