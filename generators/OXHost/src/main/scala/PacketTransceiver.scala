@@ -34,6 +34,7 @@ class Transceiver extends Module {
     val rxdata      = Input(UInt(64.W))
     val rxvalid     = Input(Bool())
     val rxlast      = Input(Bool())
+    val ox_toggle   = Input(Bool())
   })
 
   val seq     = RegInit(2.U(16.W))   // Sequence number (0~65535)
@@ -41,6 +42,15 @@ class Transceiver extends Module {
   val addr    = RegInit(0.U(64.W))
 
   /////////////////////////////////////////////////
+
+  // //ox_toggle test
+  // val ox_cnt = RegInit(0.U(64.W))
+  // when(io.ox_toggle){
+  //   ox_cnt := ox_cnt + 1.U
+  // }.otherwise{
+  //   ox_cnt := ox_cnt
+  // }
+
   // Connect to Ethnenet IP
 
   // Configuration for packet replication cycles
@@ -109,6 +119,7 @@ class Transceiver extends Module {
       txcount := 1.U
     }.elsewhen (io.txOpcode === 0.U) {	// WRITE
       tPacket := OXread.writePacket(io.txAddr, io.txData, seq, seqAck)
+      // tPacket := OXread.writePacket(io.txAddr, ox_cnt, seq, seqAck) // vio test
 
       tPacketVec := VecInit(Seq.tabulate(9) (i => {
         val packetWidth = OXread.readPacket(io.txAddr, seq, seqAck).getWidth
