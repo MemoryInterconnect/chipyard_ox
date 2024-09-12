@@ -40,7 +40,11 @@ class OmniXtendBundle extends Bundle {
   val rxdata = Input(UInt(64.W))
   val rxvalid = Input(Bool())
   val rxlast = Input(Bool())
-  val ox_toggle = Input(Bool())
+
+  val ox_open = Input(Bool())
+  val ox_close = Input(Bool())
+  val debug1 = Input(Bool())
+  val debug2 = Input(Bool())
 }
 
 /**
@@ -90,7 +94,11 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
     transceiver.io.rxdata := io.rxdata
     transceiver.io.rxvalid := io.rxvalid
     transceiver.io.rxlast := io.rxlast
-    transceiver.io.ox_toggle := io.ox_toggle
+
+    transceiver.io.ox_open := io.ox_open
+    transceiver.io.ox_close := io.ox_close
+    transceiver.io.debug1 := io.debug1
+    transceiver.io.debug2 := io.debug2
 
     // Default values for the transceiver IO
     transceiver.io.txAddr   := 0.U

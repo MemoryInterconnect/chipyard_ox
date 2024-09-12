@@ -19,13 +19,14 @@ class EthernetHeader extends Bundle {
  */
 class OmniXtendHeader extends Bundle {
   val vc        = UInt(3.W)     // Virtual Channel
-  val res1      = UInt(7.W)     // Reserved
+  val msgType   = UInt(4.W)     // Reserved
+  val res1      = UInt(3.W)     // Reserved
   val seqNum    = UInt(22.W)    // Sequence Number
   val seqNumAck = UInt(22.W)    // Sequence Number Acknowledgment
   val ack       = UInt(1.W)     // Acknowledgment
   val res2      = UInt(1.W)     // Reserved
-  val credit    = UInt(5.W)     // Credit
   val chan      = UInt(3.W)     // Channel
+  val credit    = UInt(5.W)     // Credit
 }
 
 /**
