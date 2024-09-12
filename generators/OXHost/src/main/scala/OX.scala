@@ -103,6 +103,7 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
     // Default values for the transceiver IO
     transceiver.io.txAddr   := 0.U
     transceiver.io.txData   := 0.U
+    transceiver.io.txSize   := 0.U
     transceiver.io.txOpcode := 0.U
     transceiver.io.txValid  := false.B
     transceiver.io.rxReady  := false.B
@@ -112,6 +113,7 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
         // Transmit the address, data, and opcode from the input channel
         transceiver.io.txAddr   := in.a.bits.address
         transceiver.io.txData   := in.a.bits.data
+        transceiver.io.txSize   := in.a.bits.size
         transceiver.io.txOpcode := in.a.bits.opcode
 
         // Store the opcode, source, size, and parameter for response

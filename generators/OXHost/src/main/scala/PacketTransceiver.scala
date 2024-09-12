@@ -14,6 +14,7 @@ class Transceiver extends Module {
     // TileLink interface for transmission
     val txAddr      = Input(UInt(64.W))   // Input address for transmission
     val txData      = Input(UInt(64.W))   // Input data for transmission
+    val txSize      = Input(UInt(3.W))    // Input data for transmission
     val txOpcode    = Input(UInt(3.W))    // Input opcode for transmission
     val txValid     = Input(Bool())       // Valid signal for transmission
     val txReady     = Output(Bool())      // Ready signal for transmission
@@ -71,7 +72,7 @@ class Transceiver extends Module {
   val ackd_seq    = RegInit("h3FFFFF".U(22.W))
   val next_rx_seq = RegInit(0.U(22.W))
 
-  val cPacket     = RegInit(0.U(576.W))
+  val oPacket     = RegInit(0.U(576.W))
 
   // Registers to hold the AXI-Stream signals
   val axi_rxdata  = RegInit(0.U(64.W))
@@ -139,7 +140,7 @@ class Transceiver extends Module {
   when (io.ox_open) {
     when (state === oidle) {
       state := opacket1_ready
-      cPacket := OXconnect.openConnection(next_tx_seq+1.U, 2.U, 9.U)  // Credit 9
+      oPacket := OXconnect.openConnection(next_tx_seq+1.U, 2.U, 9.U)  // Credit 9
     }
   }
 
@@ -148,7 +149,7 @@ class Transceiver extends Module {
       val packetWidth = 576
       val high = packetWidth - (64 * i) - 1
       val low = math.max(packetWidth - 64 * (i + 1), 0)
-      cPacket(high, low)
+      oPacket(high, low)
     })
     next_tx_seq := next_tx_seq + 1.U
 
@@ -162,7 +163,7 @@ class Transceiver extends Module {
   when (state === opacket1_sent) {
     when (txComplete) {
       state := opacket2_ready
-      cPacket := OXconnect.openConnection(next_tx_seq+1.U, 4.U, 9.U)  // Credit 9
+      oPacket := OXconnect.openConnection(next_tx_seq+1.U, 4.U, 9.U)  // Credit 9
 
       txComplete := false.B
     }
@@ -173,7 +174,7 @@ class Transceiver extends Module {
       val packetWidth = 576
       val high = packetWidth - (64 * i) - 1
       val low = math.max(packetWidth - 64 * (i + 1), 0)
-      cPacket(high, low)
+      oPacket(high, low)
     })
     next_tx_seq := next_tx_seq + 1.U
 
@@ -189,10 +190,11 @@ class Transceiver extends Module {
       state := owaiting_ack1
       txComplete := false.B
 
-      cstate := cready
+//      cstate := cready
     }
   }
 
+/*
   when (cstate === crunning) {
     // if normal packet
     switch((TloePacketGenerator.toBigEndian(rPacketVec(3)))(23, 21)) {
@@ -215,6 +217,7 @@ class Transceiver extends Module {
 
     }
   }
+*/
 
   // if Ackonly Packet
   val rx_seq_num = RegInit(1.U(2.W))
@@ -233,7 +236,7 @@ class Transceiver extends Module {
       state := osending_ack
       rx_seq_num := 3.U
 
-      cPacket := OXconnect.normalAck(next_tx_seq+1.U, next_rx_seq, 1.U)  //TODO ack number
+      oPacket := OXconnect.normalAck(next_tx_seq+1.U, next_rx_seq, 1.U)  //TODO ack number
     }
   }
 
@@ -243,7 +246,7 @@ class Transceiver extends Module {
       val packetWidth = 576
       val high = packetWidth - (64 * i) - 1
       val low = math.max(packetWidth - 64 * (i + 1), 0)
-      cPacket(high, low)
+      oPacket(high, low)
     })
     next_tx_seq := next_tx_seq + 1.U
 
@@ -309,6 +312,7 @@ class Transceiver extends Module {
 
     when (rxcount === 7.U){ // TODO: check 8, 9
 
+/*
       when (cstate === cready) {
         cstate := crunning
       }.elsewhen (rstate === waitResponse || rstate === waitAck) {
@@ -316,6 +320,7 @@ class Transceiver extends Module {
       }.elsewhen (wstate === waitResponse || wstate === waitAck) {
         rxPacketReceived := true.B
       }
+*/
 
       rxcount := 0.U
     }
@@ -487,35 +492,11 @@ class Transceiver extends Module {
     }
   }
 
-  when(txcount > 0.U && txcount < replicationCycles.U) {
-    axi_txdata := TloePacketGenerator.toBigEndian(tPacketVec(txcount - 1.U))
-    txcount := txcount + 1.U
-    axi_txvalid := true.B
-
-    when (txcount === (replicationCycles-1).U) {
-      axi_txlast := true.B
-      axi_txkeep := 0x3F.U
-    } .otherwise {
-      axi_txkeep := 0xFF.U
-    }
-  } .elsewhen (txcount === replicationCycles.U) {
-    // Reset signals after transmission
-    axi_txdata := 0.U
-    axi_txvalid := false.B
-    axi_txlast := false.B
-    axi_txkeep := 0.U
-    txcont := 0.U
-  }
-
   // Connecting internal signals to output interface
   io.txvalid := axi_txvalid
   io.txdata := axi_txdata
   io.txlast := axi_txlast
   io.txkeep := axi_txkeep
-
-
-
-
 
   switch (rstate) {
     is (sendRequest) {
