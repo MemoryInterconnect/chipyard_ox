@@ -57,17 +57,6 @@ class Transceiver extends Module {
   val axi_txlast  = RegInit(false.B)
   val axi_txkeep  = RegInit(0.U(8.W))
 
-  /*
-  rs_status :
-    1. connection ready
-    2. disconnection ready
-  */
-  val rx_status = RegInit(0.U(4.W))
-
-  val seq     = RegInit(2.U(16.W))   // Sequence number (0~65535)
-  val seqAck  = RegInit(3.U(16.W))   // Sequence number Ack (0~65535)
-  val addr    = RegInit(0.U(64.W))
-
   val next_tx_seq = RegInit(0.U(22.W))
   val ackd_seq    = RegInit("h3FFFFF".U(22.W))
   val next_rx_seq = RegInit(0.U(22.W))
@@ -86,18 +75,29 @@ class Transceiver extends Module {
 
   val rxPacketReceived = RegInit(false.B)
 
+  // Connecting internal signals to output interface
+  io.txvalid := axi_txvalid
+  io.txdata := axi_txdata
+  io.txlast := axi_txlast
+  io.txkeep := axi_txkeep
+
+  // Connecting internal signals to output interface
+  io.axi_rxdata  := axi_rxdata
+  io.axi_rxvalid := axi_rxvalid
+
   //////////////////////////////////////////////////////////////////
   // State Machines
-  val oidle :: opacket1_ready :: opacket1_sent :: opacket2_ready :: opacket2_sent :: owaiting_ack1 :: owaiting_ack2 :: osending_ack :: owaiting_ack3 :: Nil = Enum(9)
+  //val oidle :: opacket1_ready :: opacket1_sent :: opacket2_ready :: opacket2_sent :: owaiting_ack1 :: owaiting_ack2 :: osending_ack :: owaiting_ack3 :: Nil = Enum(9)
+  val oidle :: opacket1_ready :: opacket1_sent :: opacket2_ready :: opacket2_sent :: opacket3_ready :: opacket3_sent :: opacket4_ready :: opacket4_sent :: opacket5_ready :: opacket5_sent :: owaiting_ack1 :: owaiting_ack2 :: osending_ack :: owaiting_ack3 :: Nil = Enum(15)
   val state = RegInit(oidle)
 
   val cidle :: cpacket_sent :: cwaiting_ack :: Nil = Enum(3)
   val cstate = RegInit(cidle)
 
-  val ridle :: sendRequest :: waitResponse :: processResponse :: waitAck :: done :: Nil = Enum(6)
+  val ridle :: rsendRequest :: rwaitCredit :: rwaitResponse :: rprocessResponse :: rwaitAck :: rdone :: Nil = Enum(7)
   val rstate = RegInit(ridle)
 
-  val widle :: wsendRequest :: wwaitResponse :: wprocessResponse :: wwaitAck :: wdone :: Nil = Enum(6)
+  val widle :: wsendRequest :: wwaitCredit1 :: wwaitCredit2 :: wwaitResponse :: wprocessResponse :: wwaitAck :: wdone :: Nil = Enum(8)
   val wstate = RegInit(ridle)
 
   val idx = RegInit(0.U(16.W))  // 패킷 인덱스 저장 레지스터
@@ -140,7 +140,8 @@ class Transceiver extends Module {
   when (io.ox_open) {
     when (state === oidle) {
       state := opacket1_ready
-      oPacket := OXconnect.openConnection(next_tx_seq+1.U, 2.U, 9.U)  // Credit 9
+      //oPacket := OXPacket.openConnection(next_tx_seq+1.U, 2.U, 9.U)  // Credit 9
+      oPacket := OXPacket.openConnection(next_tx_seq, 1.U, 9.U)  // Credit 9
     }
   }
 
@@ -163,7 +164,8 @@ class Transceiver extends Module {
   when (state === opacket1_sent) {
     when (txComplete) {
       state := opacket2_ready
-      oPacket := OXconnect.openConnection(next_tx_seq+1.U, 4.U, 9.U)  // Credit 9
+      //oPacket := OXPacket.openConnection(next_tx_seq+1.U, 4.U, 9.U)  // Credit 9
+      oPacket := OXPacket.openConnection(next_tx_seq, 2.U, 9.U)  // Credit 9
 
       txComplete := false.B
     }
@@ -187,12 +189,100 @@ class Transceiver extends Module {
 
   when (state === opacket2_sent) {
     when (txComplete) {
+      state := opacket3_ready
+      //oPacket := OXPacket.openConnection(next_tx_seq+1.U, 4.U, 9.U)  // Credit 9
+      oPacket := OXPacket.openConnection(next_tx_seq, 3.U, 9.U)  // Credit 9
+
+      txComplete := false.B
+    }
+  }
+
+  when (state === opacket3_ready) {
+    txPacketVec := VecInit(Seq.tabulate(9) { i =>
+      val packetWidth = 576
+      val high = packetWidth - (64 * i) - 1
+      val low = math.max(packetWidth - 64 * (i + 1), 0)
+      oPacket(high, low)
+    })
+    next_tx_seq := next_tx_seq + 1.U
+
+    txPacketVecSize := 9.U
+
+    sendPacket := true.B
+    txComplete := false.B
+    state := opacket3_sent
+  }
+
+  when (state === opacket3_sent) {
+    when (txComplete) {
+      state := opacket4_ready
+      oPacket := OXPacket.openConnection(next_tx_seq, 4.U, 9.U)  // Credit 9
+
+      txComplete := false.B
+    }
+  }
+
+  when (state === opacket4_ready) {
+    txPacketVec := VecInit(Seq.tabulate(9) { i =>
+      val packetWidth = 576
+      val high = packetWidth - (64 * i) - 1
+      val low = math.max(packetWidth - 64 * (i + 1), 0)
+      oPacket(high, low)
+    })
+    next_tx_seq := next_tx_seq + 1.U
+
+    txPacketVecSize := 9.U
+
+    sendPacket := true.B
+    txComplete := false.B
+    state := opacket4_sent
+  }
+
+  when (state === opacket4_sent) {
+    when (txComplete) {
+      state := opacket5_ready
+      //oPacket := OXPacket.openConnection(next_tx_seq+1.U, 4.U, 9.U)  // Credit 9
+      oPacket := OXPacket.openConnection(next_tx_seq, 5.U, 9.U)  // Credit 9
+
+      txComplete := false.B
+    }
+  }
+
+  when (state === opacket5_ready) {
+    txPacketVec := VecInit(Seq.tabulate(9) { i =>
+      val packetWidth = 576
+      val high = packetWidth - (64 * i) - 1
+      val low = math.max(packetWidth - 64 * (i + 1), 0)
+      oPacket(high, low)
+    })
+    next_tx_seq := next_tx_seq + 1.U
+
+    txPacketVecSize := 9.U
+
+    sendPacket := true.B
+    txComplete := false.B
+    state := opacket5_sent
+  }
+
+  when (state === opacket5_sent) {
+    when (txComplete) {
+      state := owaiting_ack1
+
+      txComplete := false.B
+    }
+  }
+
+
+/* test
+  when (state === opacket2_sent) {
+    when (txComplete) {
       state := owaiting_ack1
       txComplete := false.B
 
 //      cstate := cready
     }
   }
+*/
 
 /*
   when (cstate === crunning) {
@@ -227,6 +317,9 @@ class Transceiver extends Module {
     when (rx_seq_num === 1.U) {
       state := owaiting_ack2
       rx_seq_num := 2.U
+
+      //TODO Not here
+      ackd_seq := 2.U
     }
   }
 
@@ -236,7 +329,7 @@ class Transceiver extends Module {
       state := osending_ack
       rx_seq_num := 3.U
 
-      oPacket := OXconnect.normalAck(next_tx_seq+1.U, next_rx_seq, 1.U)  //TODO ack number
+      oPacket := OXPacket.normalAck(next_tx_seq, ackd_seq, 1.U, 0.U, 0.U)  //TODO ack number
     }
   }
 
@@ -261,6 +354,11 @@ class Transceiver extends Module {
     //TODO handling recv packet
     when (txComplete && rx_seq_num === 3.U) {
       state := oidle
+
+      //TODO not here
+      next_tx_seq := 6.U
+      ackd_seq    := 5.U
+      next_rx_seq := 3.U
     }
   }
 
@@ -270,7 +368,7 @@ class Transceiver extends Module {
 
   when (io.ox_close) {
     cstate := cpacket_sent 
-    cPacket := OXconnect.closeConnection(next_tx_seq +1.U)
+    cPacket := OXPacket.closeConnection(next_tx_seq +1.U)
   }
 
   switch (cstate) {
@@ -294,6 +392,8 @@ class Transceiver extends Module {
       //TODO handling recv packet
       when (txComplete) {
         cstate := cidle
+
+        txComplete := false.B
       }
     }
   }
@@ -312,11 +412,26 @@ class Transceiver extends Module {
 
     when (rxcount === 7.U){ // TODO: check 8, 9
 
+      //packet drop condition
+      when (next_rx_seq === Cat(
+          (TloePacketGenerator.toBigEndian(rPacketVec(1)))(5, 0),
+          (TloePacketGenerator.toBigEndian(rPacketVec(2)))(63, 48)
+        )) {
+
+
+        when (rstate === rwaitCredit || rstate === rwaitResponse || rstate === rwaitAck) {
+          rxPacketReceived := true.B
+        }
+
+        when (wstate === wwaitCredit1 || wstate === wwaitCredit2 || wstate === wwaitResponse || wstate === wwaitAck) {
+          rxPacketReceived := true.B
+        }
+      }
+
 /*
       when (cstate === cready) {
         cstate := crunning
       }.elsewhen (rstate === waitResponse || rstate === waitAck) {
-        rxPacketReceived := true.B
       }.elsewhen (wstate === waitResponse || wstate === waitAck) {
         rxPacketReceived := true.B
       }
@@ -327,290 +442,257 @@ class Transceiver extends Module {
   }
  
 
-/*
-  // Handling the valid and last signals in AXI-Stream
-  // Reply for Open Connection
-  when (io.rxvalid && rx_status === 1.U) {
+  //////////////////////////////////////////////////////////////////
+  // TX
 
-    rxcount := rxcount + 1.U
-    rPacketVec(rxcount) := io.rxdata
+  val rPacket     = RegInit(0.U(576.W))
+  val wPacket     = RegInit(0.U(576.W))
 
-    when (rxcount === 7.U) { // TODO: check 8, 9
-      val msg_type = (TloePacketGenerator.toBigEndian(rPacketVec(1)))(12, 9)
-
-      when (msg_type === 0.U) {
-        val chan_tmp = (TloePacketGenerator.toBigEndian(rPacketVec(3)))(23, 21)
-        val credit_tmp = (TloePacketGenerator.toBigEndian(rPacketVec(3)))(20, 16)
-
-        switch(chan_tmp) {
-          is(1.U) {
-            A_channel := credit_tmp
-          }
-          is(3.U) {
-            C_channel := credit_tmp 
-          }
-          is(5.U) {
-            E_channel := credit_tmp 
-          }
-        }      
-        next_rx_seq := next_rx_seq + 1.U
-      }.elsewhen (msg_type === 3.U) {
-        //TODO
-        val seq_ack = (TloePacketGenerator.toBigEndian(rPacketVec(2)))(47, 16)
-
-        when (seq_ack === 2.U) {
-          // Send Normal Packet
-
-        }
-      }
-    }
-*/
-
-/*
-    when (rxcount === 7.U) { // TODO: check 8, 9
-      switch((TloePacketGenerator.toBigEndian(rPacketVec(3)))(23, 21)) {
-        is(1.U) {
-          A_channel := (TloePacketGenerator.toBigEndian(rPacketVec(3)))(20, 16)
-        }
-        is(3.U) {
-          C_channel := (TloePacketGenerator.toBigEndian(rPacketVec(3)))(20, 16) 
-        }
-        is(5.U) {
-          E_channel := (TloePacketGenerator.toBigEndian(rPacketVec(3)))(20, 16) 
-        }
-      }      
-    }
-*/
-/*
-
-    // Open Connection Done
-    when (A_channel =/= 0.U && C_channel =/= 0.U && E_channel =/= 0.U) {
-
-      //TODO
-      axi_rxdata := Cat(
-        (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
-        (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 16)
-      ) 
-      axi_rxvalid := true.B
-
-      rx_status := 0.U
-    }
-  }
-
-  // Reply for Close Connection
-  when (io.rxvalid && rx_status === 2.U) {
-    rxcount := rxcount + 1.U
-
-    rPacketVec(rxcount) := io.rxdata
-
-    when (rxcount === 7.U){ // TODO: check 8, 9
-      axi_rxdata := Cat(
-        (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
-        (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 16)
-      ) 
-      axi_rxvalid := true.B
-    } .otherwise{
-      axi_rxvalid := false.B
-    }
-  }
-
- //TODO NORMAL??
-  when (io.rxvalid && rx_status === 0.U) {
-    // Clear everything
-    rxcount := rxcount + 1.U
-
-    rPacketVec(rxcount) := io.rxdata
-
-    when (rxcount === 7.U){ // TODO: check 8, 9
-      axi_rxdata := Cat(
-        (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
-        (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 16)
-      ) 
-      axi_rxvalid := true.B
-    } .otherwise{
-      axi_rxvalid := false.B
-    }
-  }
-*/
-
-  // Connecting internal signals to output interface
-  io.axi_rxdata  := axi_rxdata
-  io.axi_rxvalid := axi_rxvalid
-
-  val txcount     = RegInit(0.U(log2Ceil(replicationCycles).W))
-  val tPacket     = Wire(UInt(576.W)) 
-  val tPacketVec  = RegInit(VecInit(Seq.fill(9)(0.U(64.W))))
-
-  tPacket := 0.U
+  rPacket := 0.U
 
   // TX AXI-Stream data/valid/last
   when (io.txValid) {
 
     when (io.txOpcode === 4.U) {		// READ
-      //rstate := sendRequest
-      tPacket := OXread.readPacket(io.txAddr, seq, seqAck)
-
-      txPacketVec := VecInit(Seq.tabulate(9) (i => {
-        val packetWidth = OXread.readPacket(io.txAddr, seq, seqAck).getWidth
-        val high = packetWidth - (64 * i) - 1
-	    val low = math.max(packetWidth - 64 * (i + 1), 0)
-
-        tPacket (high, low)
-      }))
-      seq := seq + 1.U
-
-      axi_txlast := false.B
-
-      txPacketVecSize := 9.U
-      sendPacket := true.B
-      //txcount := 1.U
-      //count := 1.U
-
-      when (txComplete) {
-        txComplete := false.B
-      }
+      rPacket := OXPacket.readPacket(io.txAddr, next_tx_seq, next_rx_seq)
+      rstate := rsendRequest
     }.elsewhen (io.txOpcode === 0.U) {	// WRITE
+      wPacket := OXPacket.writePacket(io.txAddr, io.txData, next_tx_seq, next_rx_seq)
       wstate := wsendRequest
-/*
-      tPacket := OXread.writePacket(io.txAddr, io.txData, seq, seqAck)
-      // tPacket := OXread.writePacket(io.txAddr, ox_cnt, seq, seqAck) // vio test
-
-      tPacketVec := VecInit(Seq.tabulate(9) (i => {
-        val packetWidth = OXread.readPacket(io.txAddr, seq, seqAck).getWidth
-        val high = packetWidth - (64 * i) - 1
-	    val low = math.max(packetWidth - 64 * (i + 1), 0)
-
-        tPacket (high, low)
-      }))
-      seq := seq + 1.U
-
-      axi_txlast := false.B
-      txcount := 1.U
-*/
     }.otherwise {
       //TODO
     }
   }
 
-  // Connecting internal signals to output interface
-  io.txvalid := axi_txvalid
-  io.txdata := axi_txdata
-  io.txlast := axi_txlast
-  io.txkeep := axi_txkeep
+  //////////////////////////////////////////////////////////////////
+  // READ
 
   switch (rstate) {
-    is (sendRequest) {
+    is (rsendRequest) {
       // make packet
-      tPacket := OXread.readPacket(io.txAddr, seq, seqAck)
-
-      tPacketVec := VecInit(Seq.tabulate(9) (i => {
-        val packetWidth = OXread.readPacket(io.txAddr, seq, seqAck).getWidth
+      txPacketVec := VecInit(Seq.tabulate(9) (i => {
+        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, next_rx_seq).getWidth
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
-        tPacket (high, low)
+        rPacket (high, low)
       }))
-      seq := seq + 1.U
+      next_tx_seq := next_tx_seq + 1.U
 
-      axi_txlast := false.B
+      txPacketVecSize := 9.U
 
-      // send packet
       sendPacket := true.B
+      txComplete := false.B
 
-      // change state
-      when (txComplete) {
+      rstate := rwaitCredit
+    }
+
+    is (rwaitCredit) {
+      when (txComplete && rxPacketReceived) {
+        // Update acked_seq TODO If not drop
+
+        ackd_seq := TloePacketGenerator.toBigEndian(rPacketVec(2))(47, 26)   // seqNumAck
+        next_rx_seq := Cat(
+          (TloePacketGenerator.toBigEndian(rPacketVec(1)))(5, 0), 
+          (TloePacketGenerator.toBigEndian(rPacketVec(2)))(63, 48)
+        ) + 1.U 
+
+        // TODO Do something with Channel A
+
+        rxPacketReceived := false.B
+
         txComplete := false.B
-        rstate := waitResponse
+        rstate := rwaitResponse
       }
     }
 
-    is (waitResponse) {
-      when (rxPacketReceived) {
-        rstate := processResponse
-        rxPacketReceived := false.B
-      }
-    }
-
-    is (processResponse) {
-      // return TL message
-
-      // make packet
-
-      // send packet
-
-      rstate := waitAck
-    }
-
-    is (waitAck) {
+    is (rwaitResponse) {
       when (rxPacketReceived) {
 
-        // check exptected Ack
+        // Update acked_seq TODO If not drop
+        ackd_seq := TloePacketGenerator.toBigEndian(rPacketVec(2))(47, 26)   // seqNumAck
+        next_rx_seq := Cat(
+          (TloePacketGenerator.toBigEndian(rPacketVec(1)))(5, 0), 
+          (TloePacketGenerator.toBigEndian(rPacketVec(2)))(63, 48)
+        ) + 1.U 
 
-        rstate := done
+        // Return through TL message
+        axi_rxdata := Cat(
+          (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
+          (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 16)
+        ) 
+        axi_rxvalid := true.B
+
         rxPacketReceived := false.B
+
+        // Make Normal message
+        rPacket := OXPacket.normalAck(next_tx_seq, next_rx_seq + 1.U, 1.U, 4.U, 1.U)  //TODO ack number
+        rstate := rprocessResponse
       }
     }
 
-    is (done) {
+    is (rprocessResponse) {
+      axi_rxvalid := false.B
+      // Change packet to Vec
+      txPacketVec := VecInit(Seq.tabulate(9) (i => {
+        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq).getWidth
+        val high = packetWidth - (64 * i) - 1
+	    val low = math.max(packetWidth - 64 * (i + 1), 0)
+
+        rPacket (high, low)
+      }))
+      next_tx_seq := next_tx_seq + 1.U
+
+      txPacketVecSize := 9.U
+
+      // Send packet
+      sendPacket := true.B
+      txComplete := false.B
+
+      rstate := rwaitAck
+    }
+
+    is (rwaitAck) {
+
+      when (txComplete && rxPacketReceived) {
+        // Update acked_seq TODO If not drop
+
+        ackd_seq := TloePacketGenerator.toBigEndian(rPacketVec(2))(47, 26)   // seqNumAck
+/*
+        next_rx_seq := Cat(
+          (TloePacketGenerator.toBigEndian(rPacketVec(1)))(5, 0), 
+          (TloePacketGenerator.toBigEndian(rPacketVec(2)))(63, 48)
+        ) + 1.U      // seqNum
+*/
+
+        // TODO check exptected Ack
+        rstate := rdone
+        rxPacketReceived := false.B
+        txComplete := false.B
+
+      }
+    }
+
+    is (rdone) {
       rstate := ridle
     }
   }
 
+  //////////////////////////////////////////////////////////////////
+  // WRITE
 
   switch (wstate) {
     is (wsendRequest) {
       // make packet
-      tPacket := OXread.writePacket(io.txAddr, io.txData, seq, seqAck)
-
       txPacketVec := VecInit(Seq.tabulate(9) (i => {
-        val packetWidth = OXread.readPacket(io.txAddr, seq, seqAck).getWidth
+        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq).getWidth
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
-        tPacket (high, low)
+        wPacket (high, low)
       }))
-      seq := seq + 1.U
+      next_tx_seq := next_tx_seq + 1.U
 
-      axi_txlast := false.B
-
-      // send packet
       txPacketVecSize := 9.U
 
-      wstate := wwaitResponse
+      sendPacket := true.B
+      txComplete := false.B
+
+      wstate := wwaitCredit1
+    }
+
+    is (wwaitCredit1) {
+      when (rxPacketReceived) {
+        // Update seq numbers
+        ackd_seq := TloePacketGenerator.toBigEndian(rPacketVec(2))(47, 26)   // seqNumAck
+        next_rx_seq := Cat(
+          (TloePacketGenerator.toBigEndian(rPacketVec(1)))(5, 0), 
+          (TloePacketGenerator.toBigEndian(rPacketVec(2)))(63, 48)
+        ) + 1.U 
+
+       // TODO Update credits of A channel
+
+        rxPacketReceived := false.B
+
+        wstate := wwaitCredit2
+      }
+    }
+
+    is (wwaitCredit2) {
+      when (rxPacketReceived) {
+        // Update seq numbers
+        ackd_seq := TloePacketGenerator.toBigEndian(rPacketVec(2))(47, 26)   // seqNumAck
+        next_rx_seq := Cat(
+          (TloePacketGenerator.toBigEndian(rPacketVec(1)))(5, 0), 
+          (TloePacketGenerator.toBigEndian(rPacketVec(2)))(63, 48)
+        ) + 1.U 
+
+       // TODO Update credits of A channel
+
+        rxPacketReceived := false.B
+
+        wstate := wwaitResponse
+      }
     }
 
     is (wwaitResponse) {
+      when (txComplete && rxPacketReceived) {
+        // Update acked_seq TODO If not drop
+        ackd_seq := TloePacketGenerator.toBigEndian(rPacketVec(2))(47, 26)   // seqNumAck
+        next_rx_seq := Cat(
+          (TloePacketGenerator.toBigEndian(rPacketVec(1)))(5, 0), 
+          (TloePacketGenerator.toBigEndian(rPacketVec(2)))(63, 48)
+        ) + 1.U 
 
-      sendPacket := true.B
+        // TODO
+        axi_rxdata := 12345.U
+        axi_rxvalid := true.B
 
-      // change state
-      when (txComplete) {
-        wstate := wprocessResponse
+        rxPacketReceived := false.B
         txComplete := false.B
+
+        wPacket := OXPacket.normalAck(next_tx_seq, next_rx_seq + 1.U, 1.U, 4.U, 1.U)  //TODO ack number
+        wstate := wprocessResponse
       }
- 
-//      when (rxPacketReceived) {
-//        rxPacketReceived := false.B
-//      }
     }
 
     is (wprocessResponse) {
-      // return TL message
-
+      axi_rxvalid := false.B
       // make packet
+      txPacketVec := VecInit(Seq.tabulate(9) (i => {
+        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq).getWidth
+        val high = packetWidth - (64 * i) - 1
+	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
-      // send packet
+        wPacket (high, low)
+      }))
+      next_tx_seq := next_tx_seq + 1.U
+
+      txPacketVecSize := 9.U
+
+      sendPacket := true.B
+      txComplete := false.B
 
       wstate := wwaitAck
     }
 
     is (wwaitAck) {
-      when (rxPacketReceived) {
+      when (txComplete && rxPacketReceived) {
+        // Update acked_seq TODO If not drop
 
-        // check exptected Ack
+        ackd_seq := TloePacketGenerator.toBigEndian(rPacketVec(2))(47, 26)   // seqNumAck
+/*
+        next_rx_seq := Cat(
+          (TloePacketGenerator.toBigEndian(rPacketVec(1)))(5, 0), 
+          (TloePacketGenerator.toBigEndian(rPacketVec(2)))(63, 48)
+        ) + 1.U      // seqNum
+*/
+
+        // TODO check exptected Ack
 
         wstate := wdone
         rxPacketReceived := false.B
+        txComplete := false.B
       }
     }
 
@@ -619,22 +701,7 @@ class Transceiver extends Module {
     }
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   /////////////////////////////////////////////////
-
   /////////////////////////////////////////////////
   // Connect to Simulator with Endpoint module
 
@@ -670,10 +737,10 @@ class Transceiver extends Module {
   when (io.txValid) {
 
     // Create a TLoE packet using input address, data, and opcode
-    tloePacket := OXread.readPacket(txAddrReg, seq, seqAck)
+    tloePacket := OXPacket.readPacket(txAddrReg, next_tx_seq, ackd_seq)
 
     tx_packet_vec := VecInit(Seq.tabulate(9) (i => {
-      //val packetWidth = OXread.createOXPacket(io.txAddr, seq, seqAck).getWidth
+      //val packetWidth = OXPacket.createOXPacket(io.txAddr, next_tx_seq, ackd_seq).getWidth
       val packetWidth = 576
       val high = packetWidth - (64 * i) - 1
       val low = math.max(packetWidth - 64 * (i + 1), 0)
@@ -688,7 +755,7 @@ class Transceiver extends Module {
 
   // Enqueue the TLoE packet into txQueue when txValid is high
   when(txCount > 0.U && txCount < replicationCycles.U) {
-    txQueue.io.enq.bits := tPacketVec(txCount - 1.U)
+    txQueue.io.enq.bits := txPacketVec(txCount - 1.U)
     txCount := txCount + 1.U
   } .elsewhen (txCount === replicationCycles.U) {
     txQueue.io.enq.valid := 1.U
