@@ -32,12 +32,12 @@ class OmniXtendBundle extends Bundle {
   val analysisResult = Input(UInt(64.W)) // 분석 결과를 받기 위한 입력 신호
   val in             = Input(UInt(8.W))
   // Connected to Ethernet IP
-  val txdata = Output(UInt(64.W))
+  val txdata = Output(UInt(512.W))
   val txvalid = Output(Bool())
   val txlast = Output(Bool())
   val txkeep = Output(UInt(8.W))
   val txready = Input(Bool())
-  val rxdata = Input(UInt(64.W))
+  val rxdata = Input(UInt(512.W))
   val rxvalid = Input(Bool())
   val rxlast = Input(Bool())
 
@@ -155,7 +155,20 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
         in.d.bits.denied  := false.B // Mark as not denied
  
       when (opcodeReg === TLMessages.AccessAckData) {
-        in.d.bits.data := transceiver.io.axi_rxdata
+        switch (sizeReg) {
+          is (1.U) { in.d.bits.data := transceiver.io.axi_rxdata(511, 496) } 
+
+          is (2.U) { in.d.bits.data := transceiver.io.axi_rxdata(511, 480) }
+
+          is (3.U) { in.d.bits.data := transceiver.io.axi_rxdata(511, 448) }
+
+          is (4.U) { in.d.bits.data := transceiver.io.axi_rxdata(511, 384) }
+
+          is (5.U) { in.d.bits.data := transceiver.io.axi_rxdata(511, 256) }
+
+          is (6.U) { in.d.bits.data := transceiver.io.axi_rxdata }
+        }
+        //in.d.bits.data := transceiver.io.axi_rxdata
         in.d.bits.corrupt := false.B // Mark as not corrupt
       }.elsewhen (opcodeReg === TLMessages.AccessAck) {
         in.d.bits.data    := 0.U

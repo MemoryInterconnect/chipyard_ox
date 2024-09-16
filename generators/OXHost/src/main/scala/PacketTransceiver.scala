@@ -25,7 +25,7 @@ class Transceiver extends Module {
     val rxReady     = Input(Bool())       // Ready signal for receiver
 
     // Ethernet IP core interface
-    val axi_rxdata  = Output(UInt(64.W))
+    val axi_rxdata  = Output(UInt(512.W))
     val axi_rxvalid = Output(Bool())
     val txdata      = Output(UInt(64.W))
     val txvalid     = Output(Bool())
@@ -63,12 +63,19 @@ class Transceiver extends Module {
 
   val oPacket     = RegInit(0.U(576.W))
 
+  val tx_size = RegInit(0.U(3.W))
+  val txValid_prev = RegNext(io.txValid, 0.B)
+
+  when (io.txValid && !txValid_prev) {
+    tx_size := io.txSize
+  }
+
   // Registers to hold the AXI-Stream signals
-  val axi_rxdata  = RegInit(0.U(64.W))
+  val axi_rxdata  = RegInit(0.U(512.W))
   val axi_rxvalid = RegInit(false.B)
 
   val rxcount     = RegInit(0.U(log2Ceil(replicationCycles).W))
-  val rPacketVec  = RegInit(VecInit(Seq.fill(9)(0.U(64.W))))
+  val rPacketVec  = RegInit(VecInit(Seq.fill(12)(0.U(64.W))))
 
   val txPacketVec = RegInit(VecInit(Seq.fill(9)(0.U(64.W))))
   val txPacketVecSize = RegInit(0.U(4.W))  // 0~15
@@ -297,7 +304,7 @@ class Transceiver extends Module {
         next_rx_seq := next_rx_seq + 1.U // TODO from rx packet??
       }
       is(5.U) {
-        E_channel := (TloePacketGenerator.toBigEndian(rPacketVec(3)))(20, 16) 
+        E_channel := (TloePacketGenerator.toBigEndian(
         next_rx_seq := next_rx_seq + 1.U // TODO from rx packet??
       }
     }
@@ -410,7 +417,8 @@ class Transceiver extends Module {
 
     rPacketVec(rxcount) := io.rxdata
 
-    when (rxcount === 7.U){ // TODO: check 8, 9
+    //when (rxcount === 7.U){ // TODO: check 8, 9
+    when (io.rxlast){ // TODO: check 8, 9
 
       //packet drop condition
       when (next_rx_seq === Cat(
@@ -454,10 +462,10 @@ class Transceiver extends Module {
   when (io.txValid) {
 
     when (io.txOpcode === 4.U) {		// READ
-      rPacket := OXPacket.readPacket(io.txAddr, next_tx_seq, next_rx_seq)
+      rPacket := OXPacket.readPacket(io.txAddr, next_tx_seq, next_rx_seq, io.txSize)
       rstate := rsendRequest
     }.elsewhen (io.txOpcode === 0.U) {	// WRITE
-      wPacket := OXPacket.writePacket(io.txAddr, io.txData, next_tx_seq, next_rx_seq)
+      wPacket := OXPacket.writePacket(io.txAddr, io.txData, next_tx_seq, next_rx_seq, io.txSize)
       wstate := wsendRequest
     }.otherwise {
       //TODO
@@ -471,7 +479,7 @@ class Transceiver extends Module {
     is (rsendRequest) {
       // make packet
       txPacketVec := VecInit(Seq.tabulate(9) (i => {
-        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, next_rx_seq).getWidth
+        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, next_rx_seq, io.txSize).getWidth
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
@@ -517,10 +525,57 @@ class Transceiver extends Module {
         ) + 1.U 
 
         // Return through TL message
-        axi_rxdata := Cat(
-          (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
-          (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 16)
-        ) 
+        switch (tx_size) {
+          is (1.U) {
+            axi_rxdata := Cat(TloePacketGenerator.toBigEndian(rPacketVec(3))(15, 0), 0.U(496.W)) 
+          }
+
+          is (2.U) {
+            axi_rxdata := Cat(
+              (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
+              (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 48),
+              0.U(480.W)) 
+          }
+
+          is (3.U) {
+            axi_rxdata := Cat(
+              (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
+              (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 16), 
+              0.U(448.W))
+          }
+
+          is (4.U) {
+            axi_rxdata := Cat(
+              (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
+              (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(5)))(63, 16), 
+              0.U(384.W))
+          }
+
+          is (5.U) {
+            axi_rxdata := Cat(
+              (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
+              (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(5)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(6)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(7)))(63, 16), 
+              0.U(256.W))
+          }
+
+          is (6.U) {
+            axi_rxdata := Cat(
+              (TloePacketGenerator.toBigEndian(rPacketVec(3)))(15, 0), 
+              (TloePacketGenerator.toBigEndian(rPacketVec(4)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(5)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(6)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(7)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(8)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(9)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(10)))(63, 0),
+              (TloePacketGenerator.toBigEndian(rPacketVec(11)))(63, 16)) 
+          }
+        }
+
         axi_rxvalid := true.B
 
         rxPacketReceived := false.B
@@ -535,7 +590,7 @@ class Transceiver extends Module {
       axi_rxvalid := false.B
       // Change packet to Vec
       txPacketVec := VecInit(Seq.tabulate(9) (i => {
-        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq).getWidth
+        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq, io.txSize).getWidth
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
@@ -585,7 +640,7 @@ class Transceiver extends Module {
     is (wsendRequest) {
       // make packet
       txPacketVec := VecInit(Seq.tabulate(9) (i => {
-        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq).getWidth
+        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq, io.txSize).getWidth
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
@@ -660,7 +715,7 @@ class Transceiver extends Module {
       axi_rxvalid := false.B
       // make packet
       txPacketVec := VecInit(Seq.tabulate(9) (i => {
-        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq).getWidth
+        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq, io.txSize).getWidth
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
@@ -737,7 +792,7 @@ class Transceiver extends Module {
   when (io.txValid) {
 
     // Create a TLoE packet using input address, data, and opcode
-    tloePacket := OXPacket.readPacket(txAddrReg, next_tx_seq, ackd_seq)
+    tloePacket := OXPacket.readPacket(txAddrReg, next_tx_seq, ackd_seq, io.txSize)
 
     tx_packet_vec := VecInit(Seq.tabulate(9) (i => {
       //val packetWidth = OXPacket.createOXPacket(io.txAddr, next_tx_seq, ackd_seq).getWidth

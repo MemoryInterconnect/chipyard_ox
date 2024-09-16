@@ -133,7 +133,7 @@ object OXPacket {
     packetWithPadding
   }
 
-  def readPacket(txAddr: UInt, seqNum: UInt, seqNumAck: UInt): UInt ={
+  def readPacket(txAddr: UInt, seqNum: UInt, seqNumAck: UInt, size: UInt): UInt ={
 
     // Create a new instance of the TloePacket (a user-defined bundle)
     val tloePacket = Wire(new TloePacket)
@@ -160,7 +160,7 @@ object OXPacket {
     tloePacket.tlMsgHigh.opcode     := 4.U      // TileLink operation code (input parameter)
     tloePacket.tlMsgHigh.res2       := 0.U      // Reserved field 2
     tloePacket.tlMsgHigh.param      := 0.U      // TileLink parameter field
-    tloePacket.tlMsgHigh.size       := 3.U      // Size of the transaction
+    tloePacket.tlMsgHigh.size       := size     // Size of the transaction
     tloePacket.tlMsgHigh.domain     := 0.U      // Domain field
     tloePacket.tlMsgHigh.err        := 0.U      // Error field
     tloePacket.tlMsgHigh.res3       := 0.U      // Reserved field 3
@@ -180,7 +180,7 @@ object OXPacket {
     packetWithPadding
   }
 
-  def writePacket(txAddr: UInt, txData:UInt, seqNum: UInt, seqNumAck: UInt): UInt ={
+  def writePacket(txAddr: UInt, txData:UInt, seqNum: UInt, seqNumAck: UInt, size: UInt): UInt ={
     // Create a new instance of the TloePacket (a user-defined bundle)
     val tloePacket = Wire(new TloePacket)
 
@@ -206,7 +206,7 @@ object OXPacket {
     tloePacket.tlMsgHigh.opcode     := 0.U      // TileLink operation code (input parameter)
     tloePacket.tlMsgHigh.res2       := 0.U      // Reserved field 2
     tloePacket.tlMsgHigh.param      := 0.U      // TileLink parameter field
-    tloePacket.tlMsgHigh.size       := 3.U      // Size of the transaction
+    tloePacket.tlMsgHigh.size       := size     // Size of the transaction
     tloePacket.tlMsgHigh.domain     := 0.U      // Domain field
     tloePacket.tlMsgHigh.err        := 0.U      // Error field
     tloePacket.tlMsgHigh.res3       := 0.U      // Reserved field 3
