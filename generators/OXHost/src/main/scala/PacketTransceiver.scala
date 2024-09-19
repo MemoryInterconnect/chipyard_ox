@@ -76,6 +76,7 @@ class Transceiver extends Module {
 
   val rxcount     = RegInit(0.U(log2Ceil(replicationCycles).W))
   val rPacketVec  = RegInit(VecInit(Seq.fill(12)(0.U(64.W))))
+  val rPacketVecSize = RegInit(0.U(4.W))
 
   val txPacketVec = RegInit(VecInit(Seq.fill(9)(0.U(64.W))))
   val txPacketVecSize = RegInit(0.U(4.W))  // 0~15
@@ -434,6 +435,8 @@ class Transceiver extends Module {
         when (wstate === wwaitCredit1 || wstate === wwaitCredit2 || wstate === wwaitResponse || wstate === wwaitAck) {
           rxPacketReceived := true.B
         }
+
+        rPacketVecSize := rxcount
       }
 
 /*
@@ -682,11 +685,25 @@ class Transceiver extends Module {
           (TloePacketGenerator.toBigEndian(rPacketVec(2)))(63, 48)
         ) + 1.U 
 
-       // TODO Update credits of A channel
+        // TODO Update credits of A channel
 
+
+        // TODO If TileLink packet, handle
+      when (Cat(
+        TloePacketGenerator.toBigEndian(rPacketVec(rPacketVecSize-1.U))(15, 0),
+        TloePacketGenerator.toBigEndian(rPacketVec(rPacketVecSize))(63, 16)) =/= 0.U) {
+          wPacket := OXPacket.normalAck(next_tx_seq, next_rx_seq + 1.U, 1.U, 4.U, 1.U)  //TODO ack number
+
+          axi_rxdata := 12345.U
+          axi_rxvalid := true.B
+
+          rPacketVecSize := 0.U
+
+          wstate := wprocessResponse
+        }.otherwise {
+          wstate := wwaitResponse
+        }
         rxPacketReceived := false.B
-
-        wstate := wwaitResponse
       }
     }
 
@@ -700,7 +717,7 @@ class Transceiver extends Module {
         ) + 1.U 
 
         // TODO
-        axi_rxdata := 12345.U
+        axi_rxdata := 0.U
         axi_rxvalid := true.B
 
         rxPacketReceived := false.B

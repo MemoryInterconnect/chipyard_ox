@@ -24,13 +24,10 @@ case object OXKey extends Field[Option[OXParams]](None)
 // Definition of OmniXtend Bundle
 class OmniXtendBundle extends Bundle {
   val addr           = Input(UInt(64.W))
-  val dataIn         = Input(UInt(64.W))
-  val dataOut        = Output(UInt(64.W))
-  val rw             = Input(Bool()) // true for write, false for read
   val valid          = Input(Bool()) // signals if the transaction is valid
   val ready          = Output(Bool()) // signals if the transaction can proceed
-  val analysisResult = Input(UInt(64.W)) // 분석 결과를 받기 위한 입력 신호
   val in             = Input(UInt(8.W))
+
   // Connected to Ethernet IP
   val txdata = Output(UInt(512.W))
   val txvalid = Output(Bool())
@@ -110,19 +107,19 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
 
     // When the input channel 'a' is ready and valid
     when (in.a.fire()) {
-        // Transmit the address, data, and opcode from the input channel
-        transceiver.io.txAddr   := in.a.bits.address
-        transceiver.io.txData   := in.a.bits.data
-        transceiver.io.txSize   := in.a.bits.size
-        transceiver.io.txOpcode := in.a.bits.opcode
+      // Transmit the address, data, and opcode from the input channel
+      transceiver.io.txAddr   := in.a.bits.address
+      transceiver.io.txData   := in.a.bits.data
+      transceiver.io.txSize   := in.a.bits.size
+      transceiver.io.txOpcode := in.a.bits.opcode
 
-        // Store the opcode, source, size, and parameter for response
-        opcodeReg := Mux(in.a.bits.opcode === TLMessages.Get, TLMessages.AccessAckData, TLMessages.AccessAck)
-        sourceReg := in.a.bits.source
-        sizeReg   := in.a.bits.size
-        paramReg  := in.a.bits.param
+      // Store the opcode, source, size, and parameter for response
+      opcodeReg := Mux(in.a.bits.opcode === TLMessages.Get, TLMessages.AccessAckData, TLMessages.AccessAck)
+      sourceReg := in.a.bits.source
+      sizeReg   := in.a.bits.size
+      paramReg  := in.a.bits.param
 
-        transceiver.io.txValid := true.B // Mark the transmission as valid
+      transceiver.io.txValid := true.B // Mark the transmission as valid
     }
 
     transceiver.io.rxReady := true.B // Always ready to receive data
