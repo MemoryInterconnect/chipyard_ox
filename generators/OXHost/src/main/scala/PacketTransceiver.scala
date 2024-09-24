@@ -13,7 +13,7 @@ class Transceiver extends Module {
   val io = IO(new Bundle {
     // TileLink interface for transmission
     val txAddr      = Input(UInt(64.W))   // Input address for transmission
-    val txData      = Input(UInt(64.W))   // Input data for transmission
+    val txData      = Input(UInt(512.W))  // Input data for transmission (64 bytes)
     val txSize      = Input(UInt(3.W))    // Input data for transmission
     val txOpcode    = Input(UInt(3.W))    // Input opcode for transmission
     val txValid     = Input(Bool())       // Valid signal for transmission
@@ -78,7 +78,7 @@ class Transceiver extends Module {
   val rPacketVec  = RegInit(VecInit(Seq.fill(12)(0.U(64.W))))
   val rPacketVecSize = RegInit(0.U(4.W))
 
-  val txPacketVec = RegInit(VecInit(Seq.fill(9)(0.U(64.W))))
+  val txPacketVec = RegInit(VecInit(Seq.fill(13)(0.U(64.W))))
   val txPacketVecSize = RegInit(0.U(4.W))  // 0~15
 
   val rxPacketReceived = RegInit(false.B)
@@ -158,8 +158,9 @@ class Transceiver extends Module {
       val packetWidth = 576
       val high = packetWidth - (64 * i) - 1
       val low = math.max(packetWidth - 64 * (i + 1), 0)
-      oPacket(high, low)
-    })
+      oPacket(high, low)  
+    }) ++ Seq.fill(4)(0.U(64.W))
+
     next_tx_seq := next_tx_seq + 1.U
 
     txPacketVecSize := 9.U
@@ -185,7 +186,8 @@ class Transceiver extends Module {
       val high = packetWidth - (64 * i) - 1
       val low = math.max(packetWidth - 64 * (i + 1), 0)
       oPacket(high, low)
-    })
+    } ++ Seq.fill(4)(0.U(64.W)))
+
     next_tx_seq := next_tx_seq + 1.U
 
     txPacketVecSize := 9.U
@@ -211,7 +213,8 @@ class Transceiver extends Module {
       val high = packetWidth - (64 * i) - 1
       val low = math.max(packetWidth - 64 * (i + 1), 0)
       oPacket(high, low)
-    })
+    } ++ Seq.fill(4)(0.U(64.W)))
+
     next_tx_seq := next_tx_seq + 1.U
 
     txPacketVecSize := 9.U
@@ -236,7 +239,8 @@ class Transceiver extends Module {
       val high = packetWidth - (64 * i) - 1
       val low = math.max(packetWidth - 64 * (i + 1), 0)
       oPacket(high, low)
-    })
+    } ++ Seq.fill(4)(0.U(64.W)))
+
     next_tx_seq := next_tx_seq + 1.U
 
     txPacketVecSize := 9.U
@@ -262,7 +266,8 @@ class Transceiver extends Module {
       val high = packetWidth - (64 * i) - 1
       val low = math.max(packetWidth - 64 * (i + 1), 0)
       oPacket(high, low)
-    })
+    } ++ Seq.fill(4)(0.U(64.W)))
+
     next_tx_seq := next_tx_seq + 1.U
 
     txPacketVecSize := 9.U
@@ -348,7 +353,8 @@ class Transceiver extends Module {
       val high = packetWidth - (64 * i) - 1
       val low = math.max(packetWidth - 64 * (i + 1), 0)
       oPacket(high, low)
-    })
+    } ++ Seq.fill(4)(0.U(64.W)))
+
     next_tx_seq := next_tx_seq + 1.U
 
     txPacketVecSize := 9.U
@@ -386,7 +392,8 @@ class Transceiver extends Module {
         val high = packetWidth - (64 * i) - 1
         val low = math.max(packetWidth - 64 * (i + 1), 0)
         cPacket(high, low)
-      })
+      } ++ Seq.fill(4)(0.U(64.W)))
+
       next_tx_seq := next_tx_seq + 1.U
 
       txPacketVecSize := 9.U
@@ -457,7 +464,8 @@ class Transceiver extends Module {
   // TX
 
   val rPacket     = RegInit(0.U(576.W))
-  val wPacket     = RegInit(0.U(576.W))
+  val wPacket     = RegInit(0.U(832.W))
+  val aPacket     = RegInit(0.U(576.W))
 
   rPacket := 0.U
 
@@ -470,6 +478,9 @@ class Transceiver extends Module {
     }.elsewhen (io.txOpcode === 0.U) {	// WRITE
       wPacket := OXPacket.writePacket(io.txAddr, io.txData, next_tx_seq, next_rx_seq, io.txSize)
       wstate := wsendRequest
+    }.elsewhen (io.txOpcode === 6.U) {  // Acquired
+      aPacket := OXPacket.acquirePacket(io.txAddr, next_tx_seq, next_rx_seq, io.txSize)
+      
     }.otherwise {
       //TODO
     }
@@ -481,13 +492,25 @@ class Transceiver extends Module {
   switch (rstate) {
     is (rsendRequest) {
       // make packet
-      txPacketVec := VecInit(Seq.tabulate(9) (i => {
+/*
+      txPacketVec := VecInit(Seq.tabulate(13) (i => {
         val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, next_rx_seq, io.txSize).getWidth
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
         rPacket (high, low)
       }))
+*/
+//      when (io.txSize === 6.U) {
+        // txSize가 6일 경우, 전체 832비트를 64비트씩 나눠서 상위 비트를 먼저 저장
+//        txPacketVec := VecInit(Seq.tabulate(13)(i => 
+//          rPacket(832 - (64 * i)) - 1, 832 - 64 * (i + 1))))
+//      } .otherwise {
+        // txSize가 1~5일 경우, 하위 576비트만 사용 (wPacket의 하위 비트부터 저장)
+        txPacketVec := VecInit(Seq.tabulate(9)(i => 
+          rPacket(576 - (64 * i) - 1, 576 - 64 * (i + 1))) ++ Seq.fill(4)(0.U(64.W)))
+//      }
+
       next_tx_seq := next_tx_seq + 1.U
 
       txPacketVecSize := 9.U
@@ -592,13 +615,27 @@ class Transceiver extends Module {
     is (rprocessResponse) {
       axi_rxvalid := false.B
       // Change packet to Vec
-      txPacketVec := VecInit(Seq.tabulate(9) (i => {
+/*
+      txPacketVec := VecInit(Seq.tabulate(13) (i => {
         val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq, io.txSize).getWidth
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
         rPacket (high, low)
       }))
+*/
+/*
+      when (io.txSize === 6.U) {
+        // txSize가 6일 경우, 전체 832비트를 64비트씩 나눠서 상위 비트를 먼저 저장
+        txPacketVec := VecInit(Seq.tabulate(13)(i => rPacket(832 - (64 * (i + 1)) - 1, 832 - 64 * (i + 1))))
+      } .otherwise {
+        // txSize가 1~5일 경우, 하위 576비트만 사용 (wPacket의 하위 비트부터 저장)
+        txPacketVec := VecInit(Seq.tabulate(9)(i => rPacket(576 - (64 * (i + 1)) - 1, 576 - 64 * (i + 1))) ++ Seq.fill(4)(0.U(64.W)))
+      }
+*/
+        txPacketVec := VecInit(Seq.tabulate(9)(i => 
+          rPacket(576 - (64 * i) - 1, 576 - 64 * (i + 1))) ++ Seq.fill(4)(0.U(64.W)))
+
       next_tx_seq := next_tx_seq + 1.U
 
       txPacketVecSize := 9.U
@@ -642,13 +679,23 @@ class Transceiver extends Module {
   switch (wstate) {
     is (wsendRequest) {
       // make packet
-      txPacketVec := VecInit(Seq.tabulate(9) (i => {
-        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq, io.txSize).getWidth
-        val high = packetWidth - (64 * i) - 1
-	    val low = math.max(packetWidth - 64 * (i + 1), 0)
+/*
+      txPacketVec := VecInit(Seq.tabulate(13) (i => {
+        val packetWidth = Mux(io.txSize === 6.U, 832.U, 576.U)
+        val high = (packetWidth - (64 * i) - 1).U
+	    val low = (math.max(packetWidth - 64 * (i + 1), 0)).U
 
         wPacket (high, low)
       }))
+*/
+      when (io.txSize === 6.U) {
+        // txSize가 6일 경우, 전체 832비트를 64비트씩 나눠서 상위 비트를 먼저 저장
+        txPacketVec := VecInit(Seq.tabulate(13)(i => wPacket(832 - (64 * i) - 1, 832 - 64 * (i + 1))))
+      } .otherwise {
+        // txSize가 1~5일 경우, 하위 576비트만 사용 (wPacket의 하위 비트부터 저장)
+        txPacketVec := VecInit(Seq.tabulate(9)(i => wPacket(576 - (64 * i) - 1, math.max(576 - 64 * (i + 1), 0))) ++ Seq.fill(4)(0.U(64.W)))
+      }
+
       next_tx_seq := next_tx_seq + 1.U
 
       txPacketVecSize := 9.U
@@ -731,13 +778,23 @@ class Transceiver extends Module {
     is (wprocessResponse) {
       axi_rxvalid := false.B
       // make packet
-      txPacketVec := VecInit(Seq.tabulate(9) (i => {
-        val packetWidth = OXPacket.readPacket(io.txAddr, next_tx_seq, ackd_seq, io.txSize).getWidth
+/*
+      txPacketVec := VecInit(Seq.tabulate(13) (i => {
+        val packetWidth = 576
         val high = packetWidth - (64 * i) - 1
 	    val low = math.max(packetWidth - 64 * (i + 1), 0)
 
         wPacket (high, low)
       }))
+*/
+      when (io.txSize === 6.U) {
+        // txSize가 6일 경우, 전체 832비트를 64비트씩 나눠서 상위 비트를 먼저 저장
+        txPacketVec := VecInit(Seq.tabulate(13)(i => wPacket(832 - (64 * i) - 1, 832 - 64 * (i + 1))))
+      } .otherwise {
+        // txSize가 1~5일 경우, 하위 576비트만 사용 (wPacket의 하위 비트부터 저장)
+        txPacketVec := VecInit(Seq.tabulate(9)(i => wPacket(576 - (64 * i) - 1, math.max(576 - 64 * (i + 1), 0))) ++ Seq.fill(4)(0.U(64.W)))
+      }
+
       next_tx_seq := next_tx_seq + 1.U
 
       txPacketVecSize := 9.U

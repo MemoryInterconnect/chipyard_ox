@@ -216,11 +216,31 @@ object OXPacket {
     tloePacket.tlMsgLow.addr        := txAddr  // TileLink address (input parameter)
 
     // Define Padding and Mask
-    val padding = 0.U(128.W)                    // 192-bit padding
     val mask = "h0000000000000001".U(64.W)      // 64-bit mask, all bits set to 1
 
-    // Convert the TLoE packet bundle to a single UInt representing the entire packet
-    val packetWithPadding = Cat(tloePacket.asUInt, txData, padding, mask, 0.U(16.W))
+    val packetWithPadding = Wire(UInt(832.W))
+    packetWithPadding := Cat(tloePacket.asUInt, 0.U(576.W))
+
+    switch(size) {
+      is(1.U) {   // 2 Bytes (2^1)
+        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(15, 0), 0.U(240.W), mask)
+      }
+      is(2.U) {   // 4 Bytes (2^2)
+        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(31, 0), 0.U(224.W), mask)
+      } 
+      is(3.U) {   // 8 Bytes (2^3)
+        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(63, 0), 0.U(192.W), mask)
+      }
+      is(4.U) {   // 16 Bytes (2^4)
+        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(127, 0), 0.U(128.W), mask)
+      }
+      is(5.U) {   // 32 Bytes (2^5) 
+        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(255, 0), mask)
+      }
+      is(6.U) {   // 64 Bytes (2^6)
+        packetWithPadding := Cat(tloePacket.asUInt, txData(511, 0), mask)
+      }
+    }
     
     packetWithPadding
   }
