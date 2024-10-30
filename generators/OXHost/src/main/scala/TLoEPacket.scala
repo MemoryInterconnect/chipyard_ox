@@ -66,14 +66,12 @@ class TloePacket extends Bundle {
 /**
  * TloePacketGenerator object contains functions to create and manipulate TLoE packets.
  */
-object TloePacketGenerator {
+object TloePacGen {
 
   /**
    * Converts a 64-bit unsigned integer from little-endian to big-endian format.
-   *
-   * In big-endian format, the most significant byte is stored at the smallest address.
-   * This function rearranges the bytes of the input value to convert it from 
-   * little-endian to big-endian.
+   * @param value A 64-bit UInt to be converted.
+   * @return A 64-bit UInt in big-endian format.
    */
   def toBigEndian(value: UInt): UInt = {
     require(value.getWidth == 64, "Input must be 64 bits wide")  // Ensure the input is 64 bits wide
@@ -92,47 +90,64 @@ object TloePacketGenerator {
   }
 
   /**
-   * Creates a new TLoE (TileLink over Ethernet) packet.
-   *
-   * This function constructs a TLoE packet by populating the various fields of the packet
-   * with appropriate values. The packet is divided into different headers and message
-   * components, such as the Ethernet header, OmniXtend header, and TileLink message fields.
+   * Extracts the EtherType field from a packet.
+   * @param packet A vector of UInts representing the packet.
+   * @return The EtherType field as a 16-bit UInt.
    */
-  def createTloePacket(txAddr: UInt, txData: UInt, txOpcode: UInt): UInt = {
-    // Create a new instance of the TloePacket (a user-defined bundle)
-    val tloePacket = Wire(new TloePacket)
+  def getEtherType(packet: Vec[UInt]): UInt = {
+    val seqNum = toBigEndian(packet(1))(31, 16)
+    seqNum
+  }
 
-    // Populate the Ethernet header fields
-    tloePacket.ethHeader.destMAC    := "h043f72dd0acc".U  // 6-byte Destination MAC Address
-    tloePacket.ethHeader.srcMAC     := "h123456789ABC".U  // 6-byte Source MAC Address
-    tloePacket.ethHeader.etherType  := "hAAAA".U          // 2-byte EtherType (Example value for TLoE)
+  /**
+   * Extracts the Sequence Number field from a packet.
+   * @param packet A vector of UInts representing the packet.
+   * @return The Sequence Number as a 22-bit UInt.
+   */
+  def getSeqNum(packet: Vec[UInt]): UInt = {
+    val seqNum = Cat(toBigEndian(packet(1))(5, 0), toBigEndian(packet(2))(63, 48))
+    seqNum
+  }
 
-    // Populate the OmniXtend header fields
-    tloePacket.omniHeader.vc        := 0.U  // Virtual Channel ID
-    tloePacket.omniHeader.res1      := 0.U  // Reserved field 1
-    tloePacket.omniHeader.seqNum    := 0.U  // Sequence Number
-    tloePacket.omniHeader.seqNumAck := 0.U  // Acknowledged Sequence Number
-    tloePacket.omniHeader.ack       := 1.U  // Acknowledgment flag
-    tloePacket.omniHeader.res2      := 0.U  // Reserved field 2
-    tloePacket.omniHeader.credit    := 0.U  // Credit field
-    tloePacket.omniHeader.chan      := 0.U  // Channel ID
+  /**
+   * Extracts the Sequence Number Acknowledgment field from a packet.
+   * @param packet A vector of UInts representing the packet.
+   * @return The Sequence Number Acknowledgment as a 22-bit UInt.
+   */
+  def getSeqNumAck(packet: Vec[UInt]): UInt = {
+    val seqNumAck = toBigEndian(packet(2))(47, 26)  // Extracts bits 23:21 from packet(2)
+    seqNumAck
+  }
 
-    // Populate the high part of the TileLink message fields
-    tloePacket.tlMsgHigh.res1       := 0.U      // Reserved field 1
-    tloePacket.tlMsgHigh.chan       := 0.U      // Channel ID
-    tloePacket.tlMsgHigh.opcode     := txOpcode // TileLink operation code (input parameter)
-    tloePacket.tlMsgHigh.res2       := 0.U      // Reserved field 2
-    tloePacket.tlMsgHigh.param      := 0.U      // TileLink parameter field
-    tloePacket.tlMsgHigh.size       := 0.U      // Size of the transaction
-    tloePacket.tlMsgHigh.domain     := 0.U      // Domain field
-    tloePacket.tlMsgHigh.err        := 0.U      // Error field
-    tloePacket.tlMsgHigh.res3       := 0.U      // Reserved field 3
-    tloePacket.tlMsgHigh.source     := 0.U      // Source field
+  /**
+   * Extracts the Channel ID from a packet.
+   * @param packet A vector of UInts representing the packet.
+   * @return The Channel ID as a 3-bit UInt.
+   */
+  def getChan(packet: Vec[UInt]): UInt = {
+    val chan = toBigEndian(packet(2))(23, 21)  // Extracts bits 23:21 from packet(2)
+    chan
+  }
 
-    // Populate the low part of the TileLink message fields
-    tloePacket.tlMsgLow.addr    := txAddr   // TileLink address (input parameter)
+  /**
+   * Extracts the Credit field from a packet.
+   * @param packet A vector of UInts representing the packet.
+   * @return The Credit field as a 5-bit UInt.
+   */
+  def getCredit(packet: Vec[UInt]): UInt = {
+    val credit = toBigEndian(packet(2))(20, 16)  // Extracts bits 20:16 from packet(2) 
+    credit
+  }
 
-    // Convert the TLoE packet bundle to a single UInt representing the entire packet
-    tloePacket.asUInt
+  /**
+   * Extracts a Mask field from a packet.
+   * The mask is used to define which parts of the packet are valid.
+   * @param packet A vector of UInts representing the packet.
+   * @param size The number of 64-bit elements in the packet.
+   * @return The mask as a 64-bit UInt.
+   */
+  def getMask(packet: Vec[UInt], size: UInt): UInt = {
+    val mask = Cat(toBigEndian(packet(size-2.U))(15, 0), toBigEndian(packet(size-1.U))(63, 16))
+    mask
   }
 }

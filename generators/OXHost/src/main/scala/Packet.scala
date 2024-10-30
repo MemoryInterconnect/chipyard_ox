@@ -5,10 +5,17 @@ import chisel3.util._
 
 object OXPacket {
   val srcMac    = "h123456789ABC".U
-  //val destMac   = "h98039b6c5892".U
   val destMac   = "h001232FFFFFA".U
   val etherType = "hAAAA".U 
 
+  /**
+   * Creates a packet to initiate an OmniXtend open connection.
+   *
+   * @param seq Sequence number for the packet.
+   * @param chan Channel ID.
+   * @param credit Credit information for the connection.
+   * @return A UInt representing the full packet with padding.
+   */
   def openConnection(seq:UInt, chan: UInt, credit: UInt): UInt ={
     // Create a new instance of the TloePacket (a user-defined bundle)
     val tloePacket = Wire(new TloePacket)
@@ -51,6 +58,16 @@ object OXPacket {
     packetWithPadding
   }
 
+  /**
+   * Creates a normal acknowledgment (ACK) packet.
+   *
+   * @param seq Sequence number for the packet.
+   * @param seq_ack Sequence number being acknowledged.
+   * @param ack Acknowledgment flag.
+   * @param chan Channel ID.
+   * @param credit Updated credit.
+   * @return A UInt representing the full packet with padding.
+   */
   def normalAck(seq:UInt, seq_ack:UInt, ack:UInt, chan:UInt, credit:UInt): UInt ={
     // Create a new instance of the TloePacket (a user-defined bundle)
     val tloePacket = Wire(new TloePacket)
@@ -92,6 +109,12 @@ object OXPacket {
     packetWithPadding
   }
 
+  /**
+   * Creates a packet to close an OmniXtend connection.
+   *
+   * @param seq Sequence number for the packet.
+   * @return A UInt representing the full packet with padding.
+   */
   def closeConnection(seq:UInt): UInt ={
     // Create a new instance of the TloePacket (a user-defined bundle)
     val tloePacket = Wire(new TloePacket)
@@ -133,6 +156,15 @@ object OXPacket {
     packetWithPadding
   }
 
+  /**
+   * Creates a packet for a TileLink read operation.
+   *
+   * @param txAddr TileLink address.
+   * @param seqNum Sequence number.
+   * @param seqNumAck Acknowledged sequence number.
+   * @param size Transaction size.
+   * @return A UInt representing the full packet with padding.
+   */
   def readPacket(txAddr: UInt, seqNum: UInt, seqNumAck: UInt, size: UInt): UInt ={
 
     // Create a new instance of the TloePacket (a user-defined bundle)
@@ -180,6 +212,16 @@ object OXPacket {
     packetWithPadding
   }
 
+  /**
+   * Creates a packet for a TileLink write operation.
+   *
+   * @param txAddr TileLink address.
+   * @param txData Data to write.
+   * @param seqNum Sequence number.
+   * @param seqNumAck Acknowledged sequence number.
+   * @param size Transaction size.
+   * @return A UInt representing the full packet with padding.
+   */
   def writePacket(txAddr: UInt, txData:UInt, seqNum: UInt, seqNumAck: UInt, size: UInt): UInt ={
     // Create a new instance of the TloePacket (a user-defined bundle)
     val tloePacket = Wire(new TloePacket)
@@ -218,27 +260,27 @@ object OXPacket {
     // Define Padding and Mask
     val mask = "h0000000000000001".U(64.W)      // 64-bit mask, all bits set to 1
 
-    val packetWithPadding = Wire(UInt(832.W))
-    packetWithPadding := Cat(tloePacket.asUInt, 0.U(576.W))
+    // Convert the TLoE packet bundle to a single UInt representing the entire packet
+    val packetWithPadding = WireInit(UInt(896.W), 0.U)
 
     switch(size) {
       is(1.U) {   // 2 Bytes (2^1)
-        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(15, 0), 0.U(240.W), mask)
+        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(15, 0), 0.U(240.W), mask, 0.U(16.W))
       }
       is(2.U) {   // 4 Bytes (2^2)
-        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(31, 0), 0.U(224.W), mask)
+        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(31, 0), 0.U(224.W), mask, 0.U(16.W))
       } 
       is(3.U) {   // 8 Bytes (2^3)
-        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(63, 0), 0.U(192.W), mask)
+        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(63, 0), 0.U(192.W), mask, 0.U(16.W))
       }
       is(4.U) {   // 16 Bytes (2^4)
-        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(127, 0), 0.U(128.W), mask)
+        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(127, 0), 0.U(128.W), mask, 0.U(16.W))
       }
       is(5.U) {   // 32 Bytes (2^5) 
-        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(255, 0), mask)
+        packetWithPadding := Cat(0.U(256.W), tloePacket.asUInt, txData(255, 0), mask, 0.U(16.W))
       }
       is(6.U) {   // 64 Bytes (2^6)
-        packetWithPadding := Cat(tloePacket.asUInt, txData(511, 0), mask)
+        packetWithPadding := Cat(tloePacket.asUInt, txData(511, 0), mask, 0.U(16.W))
       }
     }
     
