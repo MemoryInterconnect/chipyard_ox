@@ -79,39 +79,44 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
     val sizeReg     = RegInit(0.U(3.W)) // Register to store the size
     val paramReg    = RegInit(0.U(2.W)) // Register to store the parameter
 
-    val transceiver = Module(new Transceiver) // Transceiver module instance
+    // Instantiate TLOEEndpoint
+    val endpoint = Module(new TLOEEndpoint)
 
-    // OX <-> Transceiver IO
-    io.txdata := transceiver.io.txdata
-    io.txvalid := transceiver.io.txvalid
-    io.txlast := transceiver.io.txlast
-    io.txkeep := transceiver.io.txkeep
+    // Create TxBundle for endpoint
+    val txBundle = Wire(new endpoint.TxBundle)
+    txBundle.addr := 0.U
+    txBundle.data := 0.U
+    txBundle.size := 0.U
+    txBundle.opcode := 0.U
 
-    transceiver.io.txready := io.txready
-    transceiver.io.rxdata := io.rxdata
-    transceiver.io.rxvalid := io.rxvalid
-    transceiver.io.rxlast := io.rxlast
+    // OX <-> TLOEEndpoint IO
+    io.txdata := endpoint.io.txdata
+    io.txvalid := endpoint.io.txvalid
+    io.txlast := endpoint.io.txlast
+    io.txkeep := endpoint.io.txkeep
 
-    transceiver.io.ox_open := io.ox_open
-    transceiver.io.ox_close := io.ox_close
-    transceiver.io.debug1 := io.debug1
-    transceiver.io.debug2 := io.debug2
+    endpoint.io.txready := io.txready
+    endpoint.io.rxdata := io.rxdata
+    endpoint.io.rxvalid := io.rxvalid
+    endpoint.io.rxlast := io.rxlast
 
-    // Default values for the transceiver IO
-    transceiver.io.txAddr   := 0.U
-    transceiver.io.txData   := 0.U
-    transceiver.io.txSize   := 0.U
-    transceiver.io.txOpcode := 0.U
-    transceiver.io.txValid  := false.B
-    transceiver.io.rxReady  := false.B
+    endpoint.io.ox_open := io.ox_open
+    endpoint.io.ox_close := io.ox_close
+    endpoint.io.debug1 := io.debug1
+    endpoint.io.debug2 := io.debug2
+
+    // Default values for the endpoint tx interface
+    endpoint.io.tx.valid := false.B
+    endpoint.io.tx.bits := txBundle
+    endpoint.io.rx.ready := false.B
 
     // When the input channel 'a' is ready and valid
     when (in.a.fire()) {
       // Transmit the address, data, and opcode from the input channel
-      transceiver.io.txAddr   := in.a.bits.address
-      transceiver.io.txData   := in.a.bits.data
-      transceiver.io.txSize   := in.a.bits.size
-      transceiver.io.txOpcode := in.a.bits.opcode
+      txBundle.addr := in.a.bits.address
+      txBundle.data := in.a.bits.data
+      txBundle.size := in.a.bits.size
+      txBundle.opcode := in.a.bits.opcode
 
       // Store the opcode, source, size, and parameter for response
       opcodeReg := Mux(in.a.bits.opcode === TLMessages.Get, TLMessages.AccessAckData, TLMessages.AccessAck)
@@ -119,10 +124,10 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
       sizeReg   := in.a.bits.size
       paramReg  := in.a.bits.param
 
-      transceiver.io.txValid := true.B // Mark the transmission as valid
+      endpoint.io.tx.valid := true.B // Mark the transmission as valid
     }
 
-    transceiver.io.rxReady := true.B // Always ready to receive data
+    endpoint.io.rx.ready := true.B // Always ready to receive data
 
     // Mark the input channel 'a' as valid
     when (in.a.valid) {
@@ -141,7 +146,7 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
     in.d.bits.corrupt := false.B
 
     // When received data is not zero, prepare the response
-    when (transceiver.io.axi_rxvalid) {                // RX valid signal received from Ethernet IP
+    when (endpoint.io.rx.valid) {                // RX valid signal received from Ethernet IP
         in.d.valid        := true.B                    // Mark the response as valid
         in.d.bits         := edge.AccessAck(in.a.bits) // Generate an AccessAck response
         in.d.bits.opcode  := opcodeReg                 // Set the opcode from the register
@@ -153,17 +158,13 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
  
       when (opcodeReg === TLMessages.AccessAckData) {
         switch (sizeReg) {
-          is (1.U) { in.d.bits.data := transceiver.io.axi_rxdata(15, 0) } 
-
-          is (2.U) { in.d.bits.data := transceiver.io.axi_rxdata(31, 0) }
-
-          is (3.U) { in.d.bits.data := transceiver.io.axi_rxdata(63, 0) }
-
-          is (4.U) { in.d.bits.data := transceiver.io.axi_rxdata(127, 0) }
-
-          is (5.U) { in.d.bits.data := transceiver.io.axi_rxdata(255, 0) }
-
-          is (6.U) { in.d.bits.data := transceiver.io.axi_rxdata }
+          is (1.U) { in.d.bits.data := endpoint.io.rx.bits.data(15, 0) } 
+          is (2.U) { in.d.bits.data := endpoint.io.rx.bits.data(31, 0) }
+          is (3.U) { in.d.bits.data := endpoint.io.rx.bits.data(63, 0) }
+          // Remove larger sizes as they exceed the 64-bit data width
+          is (4.U) { in.d.bits.data := endpoint.io.rx.bits.data }
+          is (5.U) { in.d.bits.data := endpoint.io.rx.bits.data }
+          is (6.U) { in.d.bits.data := endpoint.io.rx.bits.data }
         }
         in.d.bits.corrupt := false.B // Mark as not corrupt
       }.elsewhen (opcodeReg === TLMessages.AccessAck) {
