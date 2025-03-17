@@ -47,7 +47,7 @@ class OmniXtendBundle extends Bundle {
 /**
  * OmniXtendNode is a LazyModule that defines a TileLink manager node
  * which supports OmniXtend protocol operations. It handles Get and PutFullData
- * requests by interfacing with a Transceiver module.
+ * requests by interfacing with a TLOEEndpoint module.
  */
 class OmniXtendNode(implicit p: Parameters) extends LazyModule {
   val beatBytes = 64 // The size of each data beat in bytes
@@ -79,55 +79,53 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
     val sizeReg     = RegInit(0.U(3.W)) // Register to store the size
     val paramReg    = RegInit(0.U(2.W)) // Register to store the parameter
 
-    val transceiver = Module(new Transceiver) // Transceiver module instance
+    // Instantiate modules
+    val tileLinkHandler = Module(new TileLinkHandler)
+    val endpoint = Module(new TLOEEndpoint)
 
-    // OX <-> Transceiver IO
-    io.txdata := transceiver.io.txdata
-    io.txvalid := transceiver.io.txvalid
-    io.txlast := transceiver.io.txlast
-    io.txkeep := transceiver.io.txkeep
+    // Connect TileLinkHandler to TLOEEndpoint
+    endpoint.io.tx <> tileLinkHandler.io.tx
+    tileLinkHandler.io.rx <> endpoint.io.rx
 
-    transceiver.io.txready := io.txready
-    transceiver.io.rxdata := io.rxdata
-    transceiver.io.rxvalid := io.rxvalid
-    transceiver.io.rxlast := io.rxlast
-
-    transceiver.io.ox_open := io.ox_open
-    transceiver.io.ox_close := io.ox_close
-    transceiver.io.debug1 := io.debug1
-    transceiver.io.debug2 := io.debug2
-
-    // Default values for the transceiver IO
-    transceiver.io.txAddr   := 0.U
-    transceiver.io.txData   := 0.U
-    transceiver.io.txSize   := 0.U
-    transceiver.io.txOpcode := 0.U
-    transceiver.io.txValid  := false.B
-    transceiver.io.rxReady  := false.B
+    // Default values for TileLinkHandler
+    tileLinkHandler.io.txAddr   := 0.U
+    tileLinkHandler.io.txData   := 0.U
+    tileLinkHandler.io.txSize   := 0.U
+    tileLinkHandler.io.txOpcode := 0.U
+    tileLinkHandler.io.txValid  := false.B
 
     // When the input channel 'a' is ready and valid
     when (in.a.fire()) {
-      // Transmit the address, data, and opcode from the input channel
-      transceiver.io.txAddr   := in.a.bits.address
-      transceiver.io.txData   := in.a.bits.data
-      transceiver.io.txSize   := in.a.bits.size
-      transceiver.io.txOpcode := in.a.bits.opcode
+      // Transmit the transaction through TileLinkHandler's individual signals
+      tileLinkHandler.io.txAddr   := in.a.bits.address
+      tileLinkHandler.io.txData   := in.a.bits.data
+      tileLinkHandler.io.txSize   := in.a.bits.size
+      tileLinkHandler.io.txOpcode := in.a.bits.opcode
+      tileLinkHandler.io.txValid  := true.B
 
       // Store the opcode, source, size, and parameter for response
       opcodeReg := Mux(in.a.bits.opcode === TLMessages.Get, TLMessages.AccessAckData, TLMessages.AccessAck)
       sourceReg := in.a.bits.source
       sizeReg   := in.a.bits.size
       paramReg  := in.a.bits.param
-
-      transceiver.io.txValid := true.B // Mark the transmission as valid
     }
 
-    transceiver.io.rxReady := true.B // Always ready to receive data
+    // Connect TLOEEndpoint to external Ethernet interface
+    io.txdata  := endpoint.io.txdata
+    io.txvalid := endpoint.io.txvalid
+    io.txlast  := endpoint.io.txlast
+    io.txkeep  := endpoint.io.txkeep
 
-    // Mark the input channel 'a' as valid
-    when (in.a.valid) {
-        aValidReg := true.B
-    }
+    endpoint.io.txready := io.txready
+    endpoint.io.rxdata  := io.rxdata
+    endpoint.io.rxvalid := io.rxvalid
+    endpoint.io.rxlast  := io.rxlast
+
+    // Connect control signals to TLOEEndpoint
+    endpoint.io.ox_open  := io.ox_open
+    endpoint.io.ox_close := io.ox_close
+    endpoint.io.debug1   := io.debug1
+    endpoint.io.debug2   := io.debug2
 
     // Default values for the response channel 'd'
     in.d.valid        := false.B
@@ -140,8 +138,8 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
     in.d.bits.data    := 0.U
     in.d.bits.corrupt := false.B
 
-    // When received data is not zero, prepare the response
-    when (transceiver.io.axi_rxvalid) {                // RX valid signal received from Ethernet IP
+    // When received data is valid from TileLinkHandler
+    when (tileLinkHandler.io.rxValid) {
         in.d.valid        := true.B                    // Mark the response as valid
         in.d.bits         := edge.AccessAck(in.a.bits) // Generate an AccessAck response
         in.d.bits.opcode  := opcodeReg                 // Set the opcode from the register
@@ -153,17 +151,9 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
  
       when (opcodeReg === TLMessages.AccessAckData) {
         switch (sizeReg) {
-          is (1.U) { in.d.bits.data := transceiver.io.axi_rxdata(15, 0) } 
-
-          is (2.U) { in.d.bits.data := transceiver.io.axi_rxdata(31, 0) }
-
-          is (3.U) { in.d.bits.data := transceiver.io.axi_rxdata(63, 0) }
-
-          is (4.U) { in.d.bits.data := transceiver.io.axi_rxdata(127, 0) }
-
-          is (5.U) { in.d.bits.data := transceiver.io.axi_rxdata(255, 0) }
-
-          is (6.U) { in.d.bits.data := transceiver.io.axi_rxdata }
+          is (1.U) { in.d.bits.data := tileLinkHandler.io.rxData(15, 0) } 
+          is (2.U) { in.d.bits.data := tileLinkHandler.io.rxData(31, 0) }
+          is (3.U) { in.d.bits.data := tileLinkHandler.io.rxData }
         }
         in.d.bits.corrupt := false.B // Mark as not corrupt
       }.elsewhen (opcodeReg === TLMessages.AccessAck) {
@@ -172,8 +162,9 @@ class OmniXtendNode(implicit p: Parameters) extends LazyModule {
     }
 
     // Ready conditions for the input channel 'a' and response channel 'd'
-    in.a.ready := in.a.valid || aValidReg
+    in.a.ready := tileLinkHandler.io.txReady
     in.d.ready := in.a.valid || aValidReg
+    tileLinkHandler.io.rxReady := true.B
 
     // IO ready signal is asserted when input is valid and opcode is Get or PutFullData
     io.ready := in.a.valid && (in.a.bits.opcode === TLMessages.Get || in.a.bits.opcode === TLMessages.PutFullData)
@@ -207,4 +198,3 @@ trait OmniXtendModuleImp extends LazyModuleImp {
 class WithOX(useAXI4: Boolean = false, useBlackBox: Boolean = false) extends Config((site, here, up) => {
   case OXKey => Some(OXParams(useAXI4 = useAXI4, useBlackBox = useBlackBox))
 })
-
