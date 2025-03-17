@@ -22,7 +22,12 @@ object TLOEConnectionConstants {
   val CHANNEL_C = 3.U(3.W)
   val CHANNEL_D = 4.U(3.W)
   val CHANNEL_E = 5.U(3.W)
+
+  val SRC_MAC    = "h123456789ABC".U
+  val DEST_MAC   = "h001232FFFFFA".U
+  val ETHER_TYPE = "hAAAA".U
 }
+
 
 /**
  * TLOEConnection handles the connection management for OmniXtend protocol.
@@ -159,9 +164,9 @@ class TLOEConnection extends Module {
     val packet = Wire(new TloePacket)
     
     // Set packet fields
-    packet.ethHeader.destMAC := OXPacket.destMac
-    packet.ethHeader.srcMAC := OXPacket.srcMac
-    packet.ethHeader.etherType := OXPacket.etherType
+    packet.ethHeader.destMAC := DEST_MAC
+    packet.ethHeader.srcMAC := SRC_MAC
+    packet.ethHeader.etherType := ETHER_TYPE
     
     packet.omniHeader.vc := 0.U
     packet.omniHeader.msgType := msgType
